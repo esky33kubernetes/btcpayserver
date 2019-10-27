@@ -25,7 +25,6 @@ using BTCPayServer.Controllers;
 using BTCPayServer.Services.Mails;
 using System.Threading;
 using BTCPayServer.Services.Wallets;
-using BTCPayServer.Authentication;
 using BTCPayServer.Logging;
 using BTCPayServer.HostedServices;
 using BTCPayServer.PaymentRequest;
@@ -53,6 +52,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using BTCPayServer.Security.Bitpay;
 
 namespace BTCPayServer.Hosting
 {
@@ -222,7 +224,9 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<IHostedService, TorServicesHostedService>();
             services.AddSingleton<IHostedService, PaymentRequestStreamer>();
             services.AddSingleton<IBackgroundJobClient, BackgroundJobClient>();
-            services.AddTransient<IConfigureOptions<MvcOptions>, BTCPayClaimsFilter>();
+            services.AddScoped<IAuthorizationHandler, CookieAuthorizationHandler>();
+            services.AddScoped<IAuthorizationHandler, OpenIdAuthorizationHandler>();
+            services.AddScoped<IAuthorizationHandler, BitpayAuthorizationHandler>();
 
             services.TryAddSingleton<ExplorerClientProvider>();
             services.TryAddSingleton<Bitpay>(o =>
@@ -244,8 +248,8 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<EmailSenderFactory>();
             // bundling
 
-            services.AddAuthorization(o => o.AddBTCPayPolicies().AddBTCPayRESTApiPolicies());
             services.AddBtcPayServerAuthenticationSchemes(configuration);
+            services.AddAuthorization(o => o.AddBTCPayPolicies());
 
             services.AddSingleton<IBundleProvider, ResourceBundleProvider>();
             services.AddTransient<BundleOptions>(provider =>
@@ -271,58 +275,7 @@ namespace BTCPayServer.Hosting
         private static void AddBtcPayServerAuthenticationSchemes(this IServiceCollection services,
             IConfiguration configuration)
         {
-            JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-            JwtSecurityTokenHandler.DefaultOutboundClaimTypeMap.Clear();
-
             services.AddAuthentication()
-                .AddJwtBearer(options =>
-                {
-                    //Disabled so that Tor works witt JWT auth
-                    options.RequireHttpsMetadata = false;
-                    options.TokenValidationParameters.ValidateAudience = false;
-                    //we do not validate the issuer directly because btcpay can be accessed through multiple urls that we cannot predetermine
-                    options.TokenValidationParameters.ValidateIssuer = false;
-                    options.TokenValidationParameters.IssuerSigningKey =
-                        OpenIddictExtensions.GetSigningKey(configuration);
-                    options.IncludeErrorDetails = true;
-                    options.Events = new JwtBearerEvents()
-                    {
-                        OnTokenValidated = async context =>
-                        {
-                            var routeData = context.HttpContext.GetRouteData();
-                            var identity = ((ClaimsIdentity)context.Principal.Identity);
-                            if (context.Principal.IsInRole(Roles.ServerAdmin))
-                            {
-                                identity.AddClaim(new Claim(Policies.CanModifyServerSettings.Key, "true"));
-                            }
-
-                            if (context.HttpContext.GetStoreData() != null ||
-                                !routeData.Values.TryGetValue("storeId", out var storeId))
-                            {
-                                return;
-                            }
-                            var userManager = context.HttpContext.RequestServices
-                                .GetService<UserManager<ApplicationUser>>();
-                            var storeRepository = context.HttpContext.RequestServices
-                                .GetService<StoreRepository>();
-                            var userid = userManager.GetUserId(context.Principal);
-
-                            if (!string.IsNullOrEmpty(userid))
-                            {
-                                var store = await storeRepository.FindStore((string)storeId, userid);
-                                if (store == null)
-                                {
-                                    context.Fail("Could not authorize you against store access");
-                                }
-                                else
-                                {
-                                    context.HttpContext.SetStoreData(store);
-                                    identity.AddClaims(store.GetClaims());
-                                }
-                            }
-                        }
-                    };
-                })
                 .AddCookie()
                 .AddBitpayAuthentication();
         }
@@ -331,6 +284,11 @@ namespace BTCPayServer.Hosting
         {
             app.UseMiddleware<BTCPayMiddleware>();
             return app; 
+        }
+        public static IApplicationBuilder UseHeadersOverride(this IApplicationBuilder app)
+        {
+            app.UseMiddleware<HeadersOverrideMiddleware>();
+            return app;
         }
     }
 }

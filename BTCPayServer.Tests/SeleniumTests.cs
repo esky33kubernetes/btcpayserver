@@ -8,24 +8,26 @@ using OpenQA.Selenium.Interactions;
 using System.Linq;
 using NBitcoin;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 
 namespace BTCPayServer.Tests
 {
     [Trait("Selenium", "Selenium")]
     public class ChromeTests
     {
+        public const int TestTimeout = TestUtils.TestTimeout;
         public ChromeTests(ITestOutputHelper helper)
         {
             Logs.Tester = new XUnitLog(helper) { Name = "Tests" };
             Logs.LogProvider = new XUnitLogProvider(helper);
         }
 
-        [Fact]
-        public void CanNavigateServerSettings()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanNavigateServerSettings()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 s.RegisterNewUser(true);
                 s.Driver.FindElement(By.Id("ServerSettings")).Click();
                 s.Driver.AssertNoError();
@@ -34,12 +36,12 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
-        public void NewUserLogin()
+        [Fact(Timeout = TestTimeout)]
+        public async Task NewUserLogin()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 //Register & Log Out
                 var email = s.RegisterNewUser();
                 s.Driver.FindElement(By.Id("Logout")).Click();
@@ -95,12 +97,12 @@ namespace BTCPayServer.Tests
             s.Driver.FindElement(By.Id("LoginButton")).Click();
             s.Driver.AssertNoError();
         }
-        [Fact]
+        [Fact(Timeout = TestTimeout)]
         public async Task CanUseSSHService()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 var alice = s.RegisterNewUser(isAdmin: true);
                 s.Driver.Navigate().GoToUrl(s.Link("/server/services"));
                 Assert.Contains("server/services/ssh", s.Driver.PageSource);
@@ -132,12 +134,12 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
-        public void CanUseDynamicDns()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanUseDynamicDns()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 var alice = s.RegisterNewUser(isAdmin: true);
                 s.Driver.Navigate().GoToUrl(s.Link("/server/services"));
                 Assert.Contains("Dynamic DNS", s.Driver.PageSource);
@@ -182,12 +184,12 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
-        public void CanCreateStores()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanCreateStores()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 var alice = s.RegisterNewUser();
                 var store = s.CreateNewStore().storeName;
                 s.AddDerivationScheme();
@@ -229,17 +231,75 @@ namespace BTCPayServer.Tests
                 Assert.Contains("ReturnUrl", s.Driver.Url);
                 s.Driver.Navigate().GoToUrl(invoiceUrl);
                 s.Driver.AssertNoError();
+
+                // Alice should be able to delete the store
+                s.Logout();
+                LogIn(s, alice);
+                s.Driver.FindElement(By.Id("Stores")).Click();
+                s.Driver.FindElement(By.LinkText("Remove")).Click();
+                s.Driver.FindElement(By.Id("continue")).Click();
+                s.Driver.FindElement(By.Id("Stores")).Click();
+                s.Driver.Navigate().GoToUrl(storeUrl);
+                Assert.Contains("ReturnUrl", s.Driver.Url);
+            }
+        }
+
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanUsePairing()
+        {
+            using (var s = SeleniumTester.Create())
+            {
+                await s.StartAsync();
+                s.Driver.Navigate().GoToUrl(s.Link("/api-access-request"));
+                Assert.Contains("ReturnUrl", s.Driver.Url);
+
+                var alice = s.RegisterNewUser();
+                var store = s.CreateNewStore().storeName;
+                s.AddDerivationScheme();
+
+                s.Driver.FindElement(By.Id("Tokens")).Click();
+                s.Driver.FindElement(By.Id("CreateNewToken")).Click();
+                s.Driver.FindElement(By.Id("RequestPairing")).Click();
+
+                var regex = Regex.Match(new Uri(s.Driver.Url, UriKind.Absolute).Query, "pairingCode=([^&]*)");
+                Assert.True(regex.Success, $"{s.Driver.Url} does not match expected regex");
+                var pairingCode = regex.Groups[1].Value;
+
+                s.Driver.FindElement(By.Id("ApprovePairing")).Click();
+                Assert.Contains(pairingCode, s.Driver.PageSource);
+
+                var client = new NBitpayClient.Bitpay(new Key(), s.Server.PayTester.ServerUri);
+                await client.AuthorizeClient(new NBitpayClient.PairingCode(pairingCode));
+                await client.CreateInvoiceAsync(new NBitpayClient.Invoice()
+                {
+                    Price = 0.000000012m,
+                    Currency = "USD",
+                    FullNotifications = true
+                }, NBitpayClient.Facade.Merchant);
+
+                client = new NBitpayClient.Bitpay(new Key(), s.Server.PayTester.ServerUri);
+
+                var code = await client.RequestClientAuthorizationAsync("hehe", NBitpayClient.Facade.Merchant);
+                s.Driver.Navigate().GoToUrl(code.CreateLink(s.Server.PayTester.ServerUri));
+                s.Driver.FindElement(By.Id("ApprovePairing")).Click();
+
+                await client.CreateInvoiceAsync(new NBitpayClient.Invoice()
+                {
+                    Price = 0.000000012m,
+                    Currency = "USD",
+                    FullNotifications = true
+                }, NBitpayClient.Facade.Merchant);
             }
         }
 
 
-     
-        [Fact]
-        public void CanCreateAppPoS()
+
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanCreateAppPoS()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 s.RegisterNewUser();
                 var store = s.CreateNewStore();
 
@@ -258,12 +318,12 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
-        public void CanCreateAppCF()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanCreateAppCF()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 s.RegisterNewUser();
                 var store = s.CreateNewStore();
                 s.AddDerivationScheme();
@@ -286,12 +346,12 @@ namespace BTCPayServer.Tests
             } 
         }
 
-        [Fact]
-        public void CanCreatePayRequest()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanCreatePayRequest()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
+                await s.StartAsync();
                 s.RegisterNewUser();
                 s.CreateNewStore();
                 s.AddDerivationScheme();
@@ -309,13 +369,13 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
-        public void CanManageWallet()
+        [Fact(Timeout = TestTimeout)]
+        public async Task CanManageWallet()
         {
             using (var s = SeleniumTester.Create())
             {
-                s.Start();
-                s.RegisterNewUser();
+                await s.StartAsync();
+                s.RegisterNewUser(true);
                 s.CreateNewStore();
 
                 // In this test, we try to spend from a manual seed. We import the xpub 49'/0'/0', then try to use the seed 
@@ -330,6 +390,10 @@ namespace BTCPayServer.Tests
                 s.Driver.FindElement(By.LinkText("Manage")).Click();
 
                 s.ClickOnAllSideMenus();
+
+                // Make sure we can rescan, because we are admin!
+                s.Driver.FindElement(By.Id("WalletRescan")).ForceClick();
+                Assert.Contains("The batch size make sure", s.Driver.PageSource);
 
                 // We setup the fingerprint and the account key path
                 s.Driver.FindElement(By.Id("WalletSettings")).ForceClick();

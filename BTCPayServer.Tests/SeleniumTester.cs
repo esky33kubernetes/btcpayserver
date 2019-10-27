@@ -40,9 +40,9 @@ namespace BTCPayServer.Tests
         }
 
       
-        public void Start()
+        public async Task StartAsync()
         {
-            Server.Start();
+            await Server.StartAsync();
             ChromeOptions options = new ChromeOptions();
             var isDebug = !Server.PayTester.InContainer;
         
@@ -65,11 +65,12 @@ namespace BTCPayServer.Tests
             Logs.Tester.LogInformation("Selenium: Using chrome driver");
             Logs.Tester.LogInformation("Selenium: Browsing to " + Server.PayTester.ServerUri);
             Logs.Tester.LogInformation($"Selenium: Resolution {Driver.Manage().Window.Size}");
-            Driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
+            Driver.Manage().Timeouts().ImplicitWait = ImplicitWait;
             Driver.Navigate().GoToUrl(Server.PayTester.ServerUri);
             Driver.AssertNoError();
         }
 
+        public static readonly TimeSpan ImplicitWait = TimeSpan.FromSeconds(10);
         public string Link(string relativeLink)
         {
             return Server.PayTester.ServerUri.AbsoluteUri.WithoutEndingSlash() + relativeLink.WithStartingSlash();

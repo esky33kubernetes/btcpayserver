@@ -1,5 +1,4 @@
-﻿using BTCPayServer.Authentication;
-using BTCPayServer.Configuration;
+﻿using BTCPayServer.Configuration;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -326,12 +325,7 @@ namespace BTCPayServer
 
         public static string GetSIN(this ClaimsPrincipal principal)
         {
-            return principal.Claims.Where(c => c.Type == Claims.SIN).Select(c => c.Value).FirstOrDefault();
-        }
-
-        public static string GetStoreId(this ClaimsPrincipal principal)
-        {
-            return principal.Claims.Where(c => c.Type == Claims.OwnStore).Select(c => c.Value).FirstOrDefault();
+            return principal.Claims.Where(c => c.Type == Security.Bitpay.BitpayClaims.SIN).Select(c => c.Value).FirstOrDefault();
         }
 
         public static void SetIsBitpayAPI(this HttpContext ctx, bool value)

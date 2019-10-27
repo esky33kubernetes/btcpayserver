@@ -9,11 +9,27 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Internal;
 #endif
 using Xunit.Sdk;
+using System.Linq;
 
 namespace BTCPayServer.Tests
 {
     public static class TestUtils
     {
+#if DEBUG
+        public const int TestTimeout = 600_000;
+#else
+        public const int TestTimeout = 60_000;
+#endif
+        public static DirectoryInfo TryGetSolutionDirectoryInfo(string currentPath = null)
+        {
+            var directory = new DirectoryInfo(
+                currentPath ?? Directory.GetCurrentDirectory());
+            while (directory != null && !directory.GetFiles("*.sln").Any())
+            {
+                directory = directory.Parent;
+            }
+            return directory;
+        }
         public static FormFile GetFormFile(string filename, string content)
         {
             File.WriteAllText(filename, content);
@@ -46,7 +62,7 @@ namespace BTCPayServer.Tests
             formFile.ContentDisposition = $"form-data; name=\"file\"; filename=\"{fileInfo.Name}\"";
             return formFile;
         }
-        public static void Eventually(Action act, int ms = 200000)
+        public static void Eventually(Action act, int ms = 20_000)
         {
             CancellationTokenSource cts = new CancellationTokenSource(ms);
             while (true)

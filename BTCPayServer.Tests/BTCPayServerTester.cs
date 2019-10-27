@@ -32,16 +32,13 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
-#if NETCOREAPP21
-using AspNet.Security.OpenIdConnect.Primitives;
-#else
-using OpenIdConnectConstants = OpenIddict.Abstractions.OpenIddictConstants;
-#endif
+using OpenIddict.Abstractions;
 using Xunit;
 using BTCPayServer.Services;
 using System.Net.Http;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using System.Threading.Tasks;
+using AuthenticationSchemes = BTCPayServer.Security.AuthenticationSchemes;
 
 namespace BTCPayServer.Tests
 {
@@ -96,7 +93,7 @@ namespace BTCPayServer.Tests
 
         public bool MockRates { get; set; } = true;
 
-        public void Start()
+        public async Task StartAsync()
         {
             if (!Directory.Exists(_Directory))
                 Directory.CreateDirectory(_Directory);
@@ -133,7 +130,7 @@ namespace BTCPayServer.Tests
             else if (!String.IsNullOrEmpty(Postgres))
                 config.AppendLine($"postgres=" + Postgres);
             var confPath = Path.Combine(chainDirectory, "settings.config");
-            File.WriteAllText(confPath, config.ToString());
+            await File.WriteAllTextAsync(confPath, config.ToString());
 
             ServerUri = new Uri("http://" + HostName + ":" + Port + "/");
             HttpClient = new HttpClient();
@@ -143,6 +140,7 @@ namespace BTCPayServer.Tests
             _Host = new WebHostBuilder()
                     .UseConfiguration(conf)
                     .UseContentRoot(FindBTCPayServerDirectory())
+                    .UseWebRoot(Path.Combine(FindBTCPayServerDirectory(), "wwwroot"))
                     .ConfigureServices(s =>
                     {
                         s.AddLogging(l =>
@@ -157,7 +155,7 @@ namespace BTCPayServer.Tests
                     .UseKestrel()
                     .UseStartup<Startup>()
                     .Build();
-            _Host.StartWithTasksAsync().GetAwaiter().GetResult();
+            await _Host.StartWithTasksAsync();
 
             var urls = _Host.ServerFeatures.Get<IServerAddressesFeature>().Addresses;
             foreach (var url in urls)
@@ -232,12 +230,12 @@ namespace BTCPayServer.Tests
 
             
 
-            WaitSiteIsOperational().GetAwaiter().GetResult();
+            await WaitSiteIsOperational();
         }
 
         private async Task WaitSiteIsOperational()
         {
-            using (var cts = new CancellationTokenSource(10_000))
+            using (var cts = new CancellationTokenSource(20_000))
             {
                 var synching = WaitIsFullySynched(cts.Token);
                 var accessingHomepage = WaitCanAccessHomepage(cts.Token);
@@ -267,7 +265,7 @@ namespace BTCPayServer.Tests
 
         private string FindBTCPayServerDirectory()
         {
-            var solutionDirectory = LanguageService.TryGetSolutionDirectoryInfo(Directory.GetCurrentDirectory());
+            var solutionDirectory = TestUtils.TryGetSolutionDirectoryInfo(Directory.GetCurrentDirectory());
             return Path.Combine(solutionDirectory.FullName, "BTCPayServer");
         }
 
@@ -294,7 +292,7 @@ namespace BTCPayServer.Tests
         public string SSHPassword { get; internal set; }
         public string SSHKeyFile { get; internal set; }
         public string SSHConnection { get; set; }
-        public T GetController<T>(string userId = null, string storeId = null, Claim[] additionalClaims = null) where T : Controller
+        public T GetController<T>(string userId = null, string storeId = null, bool isAdmin = false) where T : Controller
         {
             var context = new DefaultHttpContext();
             context.Request.Host = new HostString("127.0.0.1", Port);
@@ -303,10 +301,10 @@ namespace BTCPayServer.Tests
             if (userId != null)
             {
                 List<Claim> claims = new List<Claim>();
-                claims.Add(new Claim(OpenIdConnectConstants.Claims.Subject, userId));
-                if (additionalClaims != null)
-                    claims.AddRange(additionalClaims);
-                context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), Policies.CookieAuthentication));
+                claims.Add(new Claim(OpenIddictConstants.Claims.Subject, userId));
+                if (isAdmin)
+                    claims.Add(new Claim(ClaimTypes.Role, Roles.ServerAdmin));
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), AuthenticationSchemes.Cookie));
             }
             if (storeId != null)
             {
