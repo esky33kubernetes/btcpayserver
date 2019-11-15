@@ -76,7 +76,7 @@ services:
       - customer_lnd
       - merchant_lnd
   nbxplorer:
-    image: nicolasdorier/nbxplorer:2.0.0.62
+    image: nicolasdorier/nbxplorer:2.0.0.63
     restart: unless-stopped
     ports:
       - "32838:32838"
@@ -127,7 +127,7 @@ services:
       - "bitcoin_datadir:/data"
 
   customer_lightningd:
-    image: btcpayserver/lightning:v0.7.2-1-dev
+    image: btcpayserver/lightning:v0.7.3-dev
     stop_signal: SIGKILL
     restart: unless-stopped
     environment: 
@@ -140,7 +140,7 @@ services:
         announce-addr=customer_lightningd
         log-level=debug
         funding-confirms=1
-        dev-broadcast-interval=1000
+        dev-fast-gossip
         dev-bitcoind-poll=1
     ports:
       - "30992:9835" # api port
@@ -154,7 +154,7 @@ services:
       - bitcoind
 
   lightning-charged:
-    image: shesek/lightning-charge:0.4.6-standalone
+    image: shesek/lightning-charge:0.4.11-standalone
     restart: unless-stopped
     environment:
       NETWORK: regtest
@@ -174,7 +174,7 @@ services:
       - merchant_lightningd
 
   merchant_lightningd:
-    image: btcpayserver/lightning:v0.7.2-1-dev
+    image: btcpayserver/lightning:v0.7.3-dev
     stop_signal: SIGKILL
     environment: 
       EXPOSE_TCP: "true"
@@ -186,7 +186,8 @@ services:
         announce-addr=merchant_lightningd
         funding-confirms=1
         log-level=debug
-        dev-broadcast-interval=1000
+        dev-fast-gossip
+        dev-bitcoind-poll=1
     ports:
       - "30993:9835" # api port
     expose:
@@ -223,7 +224,7 @@ services:
       - "5432"
 
   merchant_lnd:
-    image: btcpayserver/lnd:v0.7.0-beta
+    image: btcpayserver/lnd:v0.7.1-beta-withseed
     restart: unless-stopped
     environment:
       LND_CHAIN: "btc"
@@ -241,7 +242,6 @@ services:
         bitcoin.defaultchanconfs=1
         no-macaroons=1
         debuglevel=debug
-        noseedbackup=1
         trickledelay=1000
     ports:
       - "53280:8080"
@@ -254,7 +254,7 @@ services:
       - bitcoind
 
   customer_lnd:
-    image: btcpayserver/lnd:v0.7.0-beta
+    image: btcpayserver/lnd:v0.7.1-beta-withseed
     restart: unless-stopped
     environment:
       LND_CHAIN: "btc"
@@ -272,7 +272,6 @@ services:
         bitcoin.defaultchanconfs=1
         no-macaroons=1
         debuglevel=debug
-        noseedbackup=1
         trickledelay=1000
     ports:
       - "53281:8080"

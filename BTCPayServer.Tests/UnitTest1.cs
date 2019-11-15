@@ -60,6 +60,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NBXplorer.DerivationStrategy;
 using BTCPayServer.U2F.Models;
 using BTCPayServer.Security.Bitpay;
+using MemoryCache = Microsoft.Extensions.Caching.Memory.MemoryCache;
 
 namespace BTCPayServer.Tests
 {
@@ -532,6 +533,22 @@ namespace BTCPayServer.Tests
             }
         }
 
+        [Fact]
+        [Trait("Fast", "Fast")]
+        public async Task CanEnumerateTorServices()
+        {
+            var tor = new TorServices(new BTCPayNetworkProvider(NetworkType.Regtest), new BTCPayServerOptions()
+            {
+                TorrcFile = TestUtils.GetTestDataFullPath("Tor/torrc")
+            });
+            await tor.Refresh();
+
+            Assert.Single(tor.Services.Where(t => t.ServiceType == TorServiceType.BTCPayServer));
+            Assert.Single(tor.Services.Where(t => t.ServiceType == TorServiceType.P2P));
+            Assert.Single(tor.Services.Where(t => t.ServiceType == TorServiceType.RPC));
+            Assert.True(tor.Services.Where(t => t.ServiceType == TorServiceType.Other).Count() > 1);
+        }
+
         [Fact(Timeout = 60 * 2 * 1000)]
         [Trait("Integration", "Integration")]
         public async Task CanSetLightningServer()
@@ -551,7 +568,8 @@ namespace BTCPayServer.Tests
                     ConnectionString = "type=charge;server=" + tester.MerchantCharge.Client.Uri.AbsoluteUri,
                     SkipPortTest = true // We can't test this as the IP can't be resolved by the test host :(
                 }, "test", "BTC").GetAwaiter().GetResult();
-                Assert.DoesNotContain("Error", ((LightningNodeViewModel)Assert.IsType<ViewResult>(testResult).Model).StatusMessage, StringComparison.OrdinalIgnoreCase);
+                Assert.False(storeController.TempData.ContainsKey(WellKnownTempData.ErrorMessage));
+                storeController.TempData.Clear();
                 Assert.True(storeController.ModelState.IsValid);
 
                 Assert.IsType<RedirectToActionResult>(storeController.AddLightningNode(user.StoreId, new LightningNodeViewModel()
@@ -647,11 +665,12 @@ namespace BTCPayServer.Tests
                 acc.CreateStore();
 
                 var controller = acc.GetController<StoresController>();
-                var token = (RedirectToActionResult)controller.CreateToken(new Models.StoreViewModels.CreateTokenViewModel()
+                var token = (RedirectToActionResult)await controller.CreateToken2(new Models.StoreViewModels.CreateTokenViewModel()
                 {
                     Label = "bla",
-                    PublicKey = null
-                }).GetAwaiter().GetResult();
+                    PublicKey = null,
+                    StoreId = acc.StoreId
+                });
 
                 var pairingCode = (string)token.RouteValues["pairingCode"];
 
@@ -684,7 +703,7 @@ namespace BTCPayServer.Tests
                         FullNotifications = true,
                         ExtendedNotifications = true
                     });
-                    BitcoinUrlBuilder url = new BitcoinUrlBuilder(invoice.PaymentUrls.BIP21);
+                    BitcoinUrlBuilder url = new BitcoinUrlBuilder(invoice.PaymentUrls.BIP21, tester.NetworkProvider.BTC.NBitcoinNetwork);
                     bool receivedPayment = false;
                     bool paid = false;
                     bool confirmed = false;
@@ -746,7 +765,7 @@ namespace BTCPayServer.Tests
                 acc.CreateStore();
                 var store2 = acc.GetController<StoresController>();
                 await store2.Pair(pairingCode.ToString(), store2.CurrentStore.Id);
-                Assert.Contains(nameof(PairingResult.ReusedKey), store2.StatusMessage, StringComparison.CurrentCultureIgnoreCase);
+                Assert.Contains(nameof(PairingResult.ReusedKey), (string)store2.TempData[WellKnownTempData.ErrorMessage], StringComparison.CurrentCultureIgnoreCase);
             }
         }
 
@@ -1140,7 +1159,7 @@ namespace BTCPayServer.Tests
 
                 // Test request pairing code client side
                 var storeController = user.GetController<StoresController>();
-                storeController.CreateToken(new CreateTokenViewModel()
+                storeController.CreateToken(user.StoreId, new CreateTokenViewModel()
                 {
                     Label = "test2",
                     StoreId = user.StoreId
@@ -2002,7 +2021,7 @@ noninventoryitem:
                 //verify invoices where created
                 invoices = user.BitPay.GetInvoices();
                 Assert.Equal(2, invoices.Count(invoice => invoice.ItemCode.Equals("noninventoryitem")));
-                var inventoryItemInvoice = invoices.SingleOrDefault(invoice => invoice.ItemCode.Equals("inventoryitem"));
+                var inventoryItemInvoice = Assert.Single(invoices.Where(invoice => invoice.ItemCode.Equals("inventoryitem")));
                 Assert.NotNull(inventoryItemInvoice);
                 
                 //let's mark the inventoryitem invoice as invalid, thsi should return the item to back in stock
@@ -2880,42 +2899,6 @@ noninventoryitem:
             Assert.True(DerivationSchemeSettings.TryParseFromColdcard("{\"keystore\": {\"ckcc_xpub\": \"tpubD6NzVbkrYhZ4YHNiuTdTmHRmbcPRLfqgyneZFCL1mkzkUBjXriQShxTh9HL34FK2mhieasJVk9EzJrUfkFqRNQBjiXgx3n5BhPkxKBoFmaS\", \"xpub\": \"vpub5YjYxTemJ39tFRnuAhwduyxG2tKGjoEpmvqVQRPqdYrqa6YGoeSzBtHXaJUYB19zDbXs3JjbEcVWERjQBPf9bEfUUMZNMv1QnMyHV8JPqyf\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/84'/1'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}", testnet, out settings));
             Assert.True(settings.AccountDerivation is DirectDerivationStrategy s3 && s3.Segwit);
         }
-
-        [Fact(Timeout = TestTimeout)]
-        [Trait("Fast", "Fast")]
-        public void CheckParseStatusMessageModel()
-        {
-            var legacyStatus = "Error: some bad shit happened";
-            var parsed = new StatusMessageModel(legacyStatus);
-            Assert.Equal(legacyStatus, parsed.Message);
-            Assert.Equal(StatusMessageModel.StatusSeverity.Error, parsed.Severity);
-
-            var legacyStatus2 = "Some normal shit happened";
-            parsed = new StatusMessageModel(legacyStatus2);
-            Assert.Equal(legacyStatus2, parsed.Message);
-            Assert.Equal(StatusMessageModel.StatusSeverity.Success, parsed.Severity);
-
-            var newStatus = new StatusMessageModel()
-            {
-                Html = "<a href='xxx'>something new</a>",
-                Severity = StatusMessageModel.StatusSeverity.Info
-            };
-            parsed = new StatusMessageModel(newStatus.ToString());
-            Assert.Null(parsed.Message);
-            Assert.Equal(newStatus.Html, parsed.Html);
-            Assert.Equal(StatusMessageModel.StatusSeverity.Info, parsed.Severity);
-
-            var newStatus2 = new StatusMessageModel()
-            {
-                Message = "something new",
-                Severity = StatusMessageModel.StatusSeverity.Success
-            };
-            parsed = new StatusMessageModel(newStatus2.ToString());
-            Assert.Null(parsed.Html);
-            Assert.Equal(newStatus2.Message, parsed.Message);
-            Assert.Equal(StatusMessageModel.StatusSeverity.Success, parsed.Severity);
-
-        }
         
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
@@ -2978,13 +2961,11 @@ noninventoryitem:
                var addRequest = Assert.IsType<AddU2FDeviceViewModel>(Assert.IsType<ViewResult>(manageController.AddU2FDevice("label")).Model);
                //name should match the one provided in beginning
                Assert.Equal("label",addRequest.Name);
-               
-               //sending an invalid response model back to server, should error out
-               var statusMessage = Assert
-                   .IsType<RedirectToActionResult>(await manageController.AddU2FDevice(addRequest))
-                   .RouteValues["StatusMessage"].ToString();
-               Assert.NotNull(statusMessage);
-               Assert.Equal(StatusMessageModel.StatusSeverity.Error, new StatusMessageModel(statusMessage).Severity);
+
+                //sending an invalid response model back to server, should error out
+                Assert.IsType<RedirectToActionResult>(await manageController.AddU2FDevice(addRequest));
+                var statusModel = manageController.TempData.GetStatusMessageModel();
+               Assert.Equal(StatusMessageModel.StatusSeverity.Error, statusModel.Severity);
 
                var contextFactory = tester.PayTester.GetService<ApplicationDbContextFactory>();
 

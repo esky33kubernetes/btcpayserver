@@ -1,8 +1,9 @@
-﻿@model string
+﻿@{
+    var parsedModel = TempData.GetStatusMessageModel();
+}
 
-@if (!string.IsNullOrEmpty(Model))
+@if (parsedModel != null)
 {
-    var parsedModel = new StatusMessageModel(Model);
     <div class="alert alert-@parsedModel.SeverityCSS @(parsedModel.AllowDismiss? "alert-dismissible":"" )" role="alert">
         @if (parsedModel.AllowDismiss)
         {

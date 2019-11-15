@@ -34,6 +34,8 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using NBXplorer.DerivationStrategy;
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer
 {
@@ -108,6 +110,13 @@ namespace BTCPayServer
                 }
             }
             return value;
+        }
+
+        public static bool HasStatusMessage(this ITempDataDictionary tempData)
+        {
+            return (tempData.Peek(WellKnownTempData.SuccessMessage) ??
+                   tempData.Peek(WellKnownTempData.ErrorMessage) ??
+                   tempData.Peek("StatusMessageModel")) != null;
         }
         public static PaymentMethodId GetpaymentMethodId(this InvoiceCryptoInfo info)
         {
@@ -204,6 +213,42 @@ namespace BTCPayServer
                 return ip.IsLocal() || ip.IsRFC1918();
             }
             return false;
+        }
+
+        public static void SetStatusMessageModel(this ITempDataDictionary tempData, StatusMessageModel statusMessage)
+        {
+            if (statusMessage == null)
+            {
+                tempData.Remove("StatusMessageModel");
+                return;
+            }
+            tempData["StatusMessageModel"] = JObject.FromObject(statusMessage).ToString(Formatting.None);
+        }
+
+        public static StatusMessageModel GetStatusMessageModel(this ITempDataDictionary tempData)
+        {
+            tempData.TryGetValue(WellKnownTempData.SuccessMessage, out var successMessage);
+            tempData.TryGetValue(WellKnownTempData.ErrorMessage, out var errorMessage);
+            tempData.TryGetValue("StatusMessageModel", out var model);
+            if (successMessage != null || errorMessage != null)
+            {
+                var parsedModel = new StatusMessageModel();
+                parsedModel.Message = (string)successMessage ?? (string)errorMessage;
+                if (successMessage != null)
+                {
+                    parsedModel.Severity = StatusMessageModel.StatusSeverity.Success;
+                }
+                else
+                {
+                    parsedModel.Severity = StatusMessageModel.StatusSeverity.Error;
+                }
+                return parsedModel;
+            }
+            else if (model != null && model is string str)
+            {
+                return JObject.Parse(str).ToObject<StatusMessageModel>();
+            }
+            return null;
         }
 
         public static bool IsOnion(this HttpRequest request)

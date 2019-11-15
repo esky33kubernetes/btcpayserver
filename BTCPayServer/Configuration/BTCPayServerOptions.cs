@@ -58,7 +58,16 @@ namespace BTCPayServer.Configuration
 
         public static string GetDebugLog(IConfiguration configuration)
         {
-            return configuration.GetValue<string>("debuglog", null);
+            var logfile = configuration.GetValue<string>("debuglog", null);
+            if (!string.IsNullOrEmpty(logfile))
+            {
+                if (!Path.IsPathRooted(logfile))
+                {
+                    var networkType = DefaultConfiguration.GetNetworkType(configuration);
+                    logfile = Path.Combine(configuration.GetDataDir(networkType), logfile);
+                }
+            }
+            return logfile;
         }
         public static LogEventLevel GetDebugLogLevel(IConfiguration configuration)
         {

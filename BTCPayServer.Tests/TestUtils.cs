@@ -15,7 +15,7 @@ namespace BTCPayServer.Tests
 {
     public static class TestUtils
     {
-#if DEBUG
+#if DEBUG && !SHORT_TIMEOUT
         public const int TestTimeout = 600_000;
 #else
         public const int TestTimeout = 60_000;
@@ -30,6 +30,18 @@ namespace BTCPayServer.Tests
             }
             return directory;
         }
+
+
+        public static string GetTestDataFullPath(string relativeFilePath)
+        {
+            var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (directory != null && !directory.GetFiles("*.csproj").Any())
+            {
+                directory = directory.Parent;
+            }
+            return Path.Combine(directory.FullName, "TestData", relativeFilePath);
+        }
+
         public static FormFile GetFormFile(string filename, string content)
         {
             File.WriteAllText(filename, content);
