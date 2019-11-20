@@ -47,8 +47,14 @@ namespace BTCPayServer.Models.ServerViewModels
                 {
                     var unlockFileContents = File.ReadAllText(lndSeedFilePath);
                     var unlockFile = JsonConvert.DeserializeObject<LndSeedFile>(unlockFileContents);
-
-                    if (!String.IsNullOrEmpty(unlockFile.wallet_password))
+#pragma warning disable CA1820 // Test for empty strings using string length
+                    if (unlockFile.wallet_password == string.Empty)
+#pragma warning restore CA1820 // Test for empty strings using string length
+                    {
+                        // Nicolas stupidinly deleted the password, so we should use the default one here...
+                        unlockFile.wallet_password = "hellorockstar";
+                    }
+                    if (unlockFile.wallet_password != null)
                     {
                         return new LndSeedBackupViewModel
                         {
