@@ -24,6 +24,6 @@ stages:
       displayName: Build an image
       inputs:
         command: build
-        dockerfile: '**/Dockerfile'
+        dockerfile: 'amd64.Dockerfile'
         tags: |
-          $(tag)
+          $(1.0.3.141)
