@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
+using BTCPayServer.Hwi;
 using BTCPayServer.ModelBinders;
 using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
@@ -60,8 +61,40 @@ namespace BTCPayServer.Controllers
                     Transport = new HwiWebSocketTransport(websocket)
                 };
                 Hwi.HwiDeviceClient device = null;
+                HwiEnumerateEntry deviceEntry = null;
                 HDFingerprint? fingerprint = null;
+                string password = null;
+                bool pinProvided = false;
                 var websocketHelper = new WebSocketHelper(websocket);
+
+                async Task<bool> RequireDeviceUnlocking()
+                {
+                    if (deviceEntry == null)
+                    {
+                        await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
+                        return true;
+                    }
+                    if (deviceEntry.Code is HwiErrorCode.DeviceNotInitialized)
+                    {
+                        await websocketHelper.Send("{ \"error\": \"need-initialized\"}", cancellationToken);
+                        return true;
+                    }
+                    if ((deviceEntry.Code is HwiErrorCode.DeviceNotReady || deviceEntry.NeedsPinSent is true)
+                        && !pinProvided
+                        // Trezor T always show the pin on screen
+                        && (deviceEntry.Model != HardwareWalletModels.Trezor_T || deviceEntry.Model != HardwareWalletModels.Trezor_T_Simulator))
+                    {
+                        await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
+                        return true;
+                    }
+                    if ((deviceEntry.Code is HwiErrorCode.DeviceNotReady || deviceEntry.NeedsPassphraseSent is true) && password == null)
+                    {
+                        await websocketHelper.Send("{ \"error\": \"need-passphrase\"}", cancellationToken);
+                        return true;
+                    }
+                    return false;
+                }
+
                 JObject o = null;
                 try
                 {
@@ -70,10 +103,13 @@ namespace BTCPayServer.Controllers
                         var command = await websocketHelper.NextMessageAsync(cancellationToken);
                         switch (command)
                         {
+                            case "set-passphrase":
+                                device.Password = await websocketHelper.NextMessageAsync(cancellationToken);
+                                password = device.Password;
+                                break;
                             case "ask-sign":
-                                if (device == null)
+                                if (await RequireDeviceUnlocking())
                                 {
-                                    await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
                                     continue;
                                 }
                                 if (walletId == null)
@@ -83,15 +119,7 @@ namespace BTCPayServer.Controllers
                                 }
                                 if (fingerprint is null)
                                 {
-                                    try
-                                    {
-                                        fingerprint = (await device.GetXPubAsync(new KeyPath("44'"), cancellationToken)).ExtPubKey.ParentFingerprint;
-                                    }
-                                    catch (Hwi.HwiException ex) when (ex.ErrorCode == Hwi.HwiErrorCode.DeviceNotReady)
-                                    {
-                                        await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
-                                        continue;
-                                    }
+                                    fingerprint = (await device.GetXPubAsync(new KeyPath("44'"), cancellationToken)).ExtPubKey.ParentFingerprint;
                                 }
                                 await websocketHelper.Send("{ \"info\": \"ready\"}", cancellationToken);
                                 o = JObject.Parse(await websocketHelper.NextMessageAsync(cancellationToken));
@@ -110,14 +138,22 @@ namespace BTCPayServer.Controllers
                                     await websocketHelper.Send("{ \"error\": \"wrong-wallet\"}", cancellationToken);
                                     continue;
                                 }
+                                var signableInputs = psbt.Inputs
+                                                .SelectMany(i => i.HDKeyPaths)
+                                                .Where(i => i.Value.MasterFingerprint == fingerprint)
+                                                .ToArray();
+                                if (signableInputs.Length > 0)
+                                {
+                                    var actualPubKey = (await device.GetXPubAsync(signableInputs[0].Value.KeyPath)).GetPublicKey();
+                                    if (actualPubKey != signableInputs[0].Key)
+                                    {
+                                        await websocketHelper.Send("{ \"error\": \"wrong-keypath\"}", cancellationToken);
+                                        continue;
+                                    }
+                                }
                                 try
                                 {
                                     psbt = await device.SignPSBTAsync(psbt, cancellationToken);
-                                }
-                                catch (Hwi.HwiException ex) when (ex.ErrorCode == Hwi.HwiErrorCode.DeviceNotReady)
-                                {
-                                    await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
-                                    continue;
                                 }
                                 catch (Hwi.HwiException)
                                 {
@@ -134,14 +170,21 @@ namespace BTCPayServer.Controllers
                                     await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
                                     continue;
                                 }
-                                await device.PromptPinAsync(cancellationToken);
+                                try
+                                {
+                                    await device.PromptPinAsync(cancellationToken);
+                                }
+                                catch (HwiException ex) when (ex.ErrorCode == HwiErrorCode.DeviceAlreadyUnlocked)
+                                {
+                                    pinProvided = true;
+                                    await websocketHelper.Send("{ \"error\": \"device-already-unlocked\"}", cancellationToken);
+                                    continue;
+                                }
                                 await websocketHelper.Send("{ \"info\": \"prompted, please input the pin\"}", cancellationToken);
-                                o = JObject.Parse(await websocketHelper.NextMessageAsync(cancellationToken));
-                                var pin = (int)o["pinCode"].Value<long>();
-                                var passphrase = o["passphrase"].Value<string>();
-                                device.Password = passphrase;
+                                var pin = int.Parse(await websocketHelper.NextMessageAsync(cancellationToken), CultureInfo.InvariantCulture);
                                 if (await device.SendPinAsync(pin, cancellationToken))
                                 {
+                                    pinProvided = true;
                                     await websocketHelper.Send("{ \"info\": \"the pin is correct\"}", cancellationToken);
                                 }
                                 else
@@ -151,24 +194,14 @@ namespace BTCPayServer.Controllers
                                 }
                                 break;
                             case "ask-xpubs":
-                                if (device == null)
+                                if (await RequireDeviceUnlocking())
                                 {
-                                    await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
                                     continue;
                                 }
                                 JObject result = new JObject();
                                 var factory = network.NBXplorerNetwork.DerivationStrategyFactory;
                                 var keyPath = new KeyPath("84'").Derive(network.CoinType).Derive(0, true);
-                                BitcoinExtPubKey xpub = null;
-                                try
-                                {
-                                    xpub = await device.GetXPubAsync(keyPath);
-                                }
-                                catch (Hwi.HwiException ex) when (ex.ErrorCode == Hwi.HwiErrorCode.DeviceNotReady)
-                                {
-                                    await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
-                                    continue;
-                                }
+                                BitcoinExtPubKey xpub = await device.GetXPubAsync(keyPath);
                                 if (fingerprint is null)
                                 {
                                     fingerprint = (await device.GetXPubAsync(new KeyPath("44'"), cancellationToken)).ExtPubKey.ParentFingerprint;
@@ -196,13 +229,18 @@ namespace BTCPayServer.Controllers
                                 await websocketHelper.Send(result.ToString(), cancellationToken);
                                 break;
                             case "ask-device":
-                                var devices = (await hwi.EnumerateDevicesAsync(cancellationToken)).ToList();
-                                device = devices.FirstOrDefault();
-                                if (device == null)
+                                password = null;
+                                pinProvided = false;
+                                deviceEntry = null;
+                                device = null;
+                                var entries = (await hwi.EnumerateEntriesAsync(cancellationToken)).ToList();
+                                deviceEntry = entries.FirstOrDefault();
+                                if (deviceEntry == null)
                                 {
                                     await websocketHelper.Send("{ \"error\": \"no-device\"}", cancellationToken);
                                     continue;
                                 }
+                                device = new HwiDeviceClient(hwi, deviceEntry.DeviceSelector, deviceEntry.Model, deviceEntry.Fingerprint);
                                 fingerprint = device.Fingerprint;
                                 JObject json = new JObject();
                                 json.Add("model", device.Model.ToString());
@@ -211,6 +249,17 @@ namespace BTCPayServer.Controllers
                                 break;
                         }
                     }
+                }
+                catch (FormatException ex)
+                {
+                    JObject obj = new JObject();
+                    obj.Add("error", "invalid-network");
+                    obj.Add("details", ex.ToString());
+                    try
+                    {
+                        await websocketHelper.Send(obj.ToString(), cancellationToken);
+                    }
+                    catch { }
                 }
                 catch (Exception ex)
                 {

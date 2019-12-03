@@ -33,15 +33,18 @@ var vaultui = (function () {
         errorWebsockets: new VaultFeedback("failed", "Error of the websocket while connecting to the backend.", "vault-feedback1", "error-websocket"),
         bridgeConnected: new VaultFeedback("ok", "BTCPayServer successfully connected to the vault.", "vault-feedback1", "bridge-connected"),
         noDevice: new VaultFeedback("failed", "No device connected.", "vault-feedback2", "no-device"),
+        needInitialized: new VaultFeedback("failed", "The device has not been initialized.", "vault-feedback2", "need-initialized"),
         fetchingDevice: new VaultFeedback("?", "Fetching device...", "vault-feedback2", "fetching-device"),
         deviceFound: new VaultFeedback("ok", "Device found: {{0}}", "vault-feedback2", "device-selected"),
         fetchingXpubs: new VaultFeedback("?", "Fetching public keys...", "vault-feedback3", "fetching-xpubs"),
         fetchedXpubs: new VaultFeedback("ok", "Public keys successfully fetched.", "vault-feedback3", "xpubs-fetched"),
         unexpectedError: new VaultFeedback("failed", "An unexpected error happened.", "vault-feedback3", "unknown-error"),
+        invalidNetwork: new VaultFeedback("failed", "The device is targetting a different chain.", "vault-feedback3", "invalid-network"),
         needPin: new VaultFeedback("?", "Enter the pin.", "vault-feedback3", "need-pin"),
         incorrectPin: new VaultFeedback("failed", "Incorrect pin code.", "vault-feedback3", "incorrect-pin"),
         invalidPasswordConfirmation: new VaultFeedback("failed", "Invalid password confirmation.", "vault-feedback3", "invalid-password-confirm"),
-        wrongWallet: new VaultFeedback("failed", "This device can't sign the transaction.", "vault-feedback3", "wrong-wallet"),
+        wrongWallet: new VaultFeedback("failed", "This device can't sign the transaction. (Wrong device, wrong passphrase or wrong device fingerprint in your wallet settings)", "vault-feedback3", "wrong-wallet"),
+        wrongKeyPath: new VaultFeedback("failed", "This device can't sign the transaction. (The wallet keypath in your wallet settings seems incorrect)", "vault-feedback3", "wrong-keypath"),
         needPassphrase: new VaultFeedback("?", "Enter the passphrase.", "vault-feedback3", "need-passphrase"),
         signingTransaction: new VaultFeedback("?", "Signing the transaction...", "vault-feedback3", "ask-signing"),
         signingRejected: new VaultFeedback("failed", "The user refused to sign the transaction", "vault-feedback3", "user-reject"),
@@ -112,6 +115,11 @@ var vaultui = (function () {
                 if (json.error === "need-pin") {
                     handled = true;
                     if (await self.askForPin())
+                        return true;
+                }
+                if (json.error === "need-passphrase") {
+                    handled = true;
+                    if (await self.askForPassphrase())
                         return true;
                 }
                 if (!handled) {
@@ -230,6 +238,15 @@ var vaultui = (function () {
             });
         };
 
+        this.askForPassphrase = async function () {
+            if (!await self.ensureConnectedToBackend())
+                return false;
+            var passphrase = await self.getUserPassphrase();
+            self.bridge.socket.send("set-passphrase");
+            self.bridge.socket.send(passphrase);
+            return true;
+        }
+
         /**
          * @returns {Promise}
          */
@@ -240,14 +257,15 @@ var vaultui = (function () {
             self.bridge.socket.send("ask-pin");
             var json = await self.bridge.waitBackendMessage();
             if (json.hasOwnProperty("error")) {
+                if (json.error == "device-already-unlocked")
+                    return true;
                 if (await needRetry(json))
                     return await self.askForPin();
                 return false;
             }
 
             var pinCode = await self.getUserEnterPin();
-            var passphrase = await self.getUserPassphrase();
-            self.bridge.socket.send(JSON.stringify({ pinCode: pinCode, passphrase: passphrase }));
+            self.bridge.socket.send(pinCode);
             var json = await self.bridge.waitBackendMessage();
             if (json.hasOwnProperty("error")) {
                 showError(json);

@@ -252,7 +252,7 @@ namespace BTCPayServer.Controllers
                 vm.Id = tx.TransactionId.ToString();
                 vm.Link = string.Format(CultureInfo.InvariantCulture, paymentMethod.Network.BlockExplorerLink, vm.Id);
                 vm.Timestamp = tx.Timestamp;
-                vm.Positive = tx.BalanceChange >= Money.Zero;
+                vm.Positive = tx.BalanceChange.GetValue(wallet.Network) >= 0;
                 vm.Balance = tx.BalanceChange.ToString();
                 vm.IsConfirmed = tx.Confirmations != 0;
 
@@ -313,7 +313,7 @@ namespace BTCPayServer.Controllers
             var feeProvider = _feeRateProvider.CreateFeeProvider(network);
             var recommendedFees = feeProvider.GetFeeRateAsync();
             var balance = _walletProvider.GetWallet(network).GetBalance(paymentMethod.AccountDerivation);
-            model.CurrentBalance = (await balance).ToDecimal(MoneyUnit.BTC);
+            model.CurrentBalance = await balance;
             model.RecommendedSatoshiPerByte = (int)(await recommendedFees).GetFee(1).Satoshi;
             model.FeeSatoshiPerByte = model.RecommendedSatoshiPerByte;
             model.SupportRBF = network.SupportRBF;
@@ -387,9 +387,16 @@ namespace BTCPayServer.Controllers
                 {
                     subtractFeesOutputsCount.Add(i);
                 }
-                var destination = ParseDestination(transactionOutput.DestinationAddress, network.NBitcoinNetwork);
-                if (destination == null)
+                transactionOutput.DestinationAddress = transactionOutput.DestinationAddress.Trim();
+
+                try
+                {
+                    BitcoinAddress.Create(transactionOutput.DestinationAddress, network.NBitcoinNetwork);    
+                }
+                catch
+                {
                     ModelState.AddModelError(nameof(transactionOutput.DestinationAddress), "Invalid address");
+                }
 
                 if (transactionOutput.Amount.HasValue)
                 {
@@ -600,19 +607,6 @@ namespace BTCPayServer.Controllers
             return v.ToString() + " " + network.CryptoCode;
         }
 
-        private IDestination[] ParseDestination(string destination, Network network)
-        {
-            try
-            {
-                destination = destination?.Trim();
-                return new IDestination[] { BitcoinAddress.Create(destination, network) };
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         private IActionResult RedirectToWalletTransaction(WalletId walletId, Transaction transaction)
         {
             var network = NetworkProvider.GetNetwork<BTCPayNetwork>(walletId.CryptoCode);
@@ -728,7 +722,7 @@ namespace BTCPayServer.Controllers
             {
                 try
                 {
-                    return (await wallet.GetBalance(derivationStrategy, cts.Token)).ToString();
+                    return (await wallet.GetBalance(derivationStrategy, cts.Token)).ToString(CultureInfo.InvariantCulture);
                 }
                 catch
                 {
@@ -912,7 +906,7 @@ namespace BTCPayServer.Controllers
             }
             else if (command == "prune")
             {
-                var result = await ExplorerClientProvider.GetExplorerClient(walletId.CryptoCode).PruneAsync(derivationScheme.AccountDerivation, cancellationToken);
+                var result = await ExplorerClientProvider.GetExplorerClient(walletId.CryptoCode).PruneAsync(derivationScheme.AccountDerivation, new PruneRequest(),  cancellationToken);
                 if (result.TotalPruned == 0)
                 {
                     TempData[WellKnownTempData.SuccessMessage] = $"The wallet is already pruned";
