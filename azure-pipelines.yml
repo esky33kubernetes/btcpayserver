@@ -1,7 +1,3 @@
-# Docker
-- task: KubectlInstaller@0
-  inputs:
-    kubectlVersion: 'latest'
 # Build a Docker image 
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
