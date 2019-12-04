@@ -26,4 +26,4 @@ stages:
         command: build
         dockerfile: 'amd64.Dockerfile'
         tags: |
-          $(1.0.3.141)
+          $(1.0.3.144)
