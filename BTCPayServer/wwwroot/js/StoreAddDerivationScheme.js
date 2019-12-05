@@ -112,34 +112,29 @@ $(document).ready(function () {
     ws_uri += "//" + loc.host;
     ws_uri += websocketPath;
 
-    function displayXPubs(xpubs) {
-        $("#vault-dropdown").css("display", "block");
-        $("#vault-dropdown .dropdown-item").click(function () {
-            var id = $(this).attr('id').replace("vault-", "");
-            var xpub = xpubs[id];
-            $("#DerivationScheme").val(xpub.strategy);
-            $("#RootFingerprint").val(xpubs.fingerprint);
-            $("#AccountKey").val(xpub.accountKey);
-            $("#Source").val("Vault");
-            $("#DerivationSchemeFormat").val("BTCPay");
-            $("#KeyPath").val(xpub.keyPath);
-            $(".modal").modal('hide');
-            $(".hw-fields").show();
-        });
+    function displayXPubs(xpub) {
+        $("#DerivationScheme").val(xpub.strategy);
+        $("#RootFingerprint").val(xpub.fingerprint);
+        $("#AccountKey").val(xpub.accountKey);
+        $("#Source").val("Vault");
+        $("#DerivationSchemeFormat").val("BTCPay");
+        $("#KeyPath").val(xpub.keyPath);
+        $(".modal").modal('hide');
+        $(".hw-fields").show();
     }
 
-    var vaultInit = false;
     $(".check-for-vault").on("click", async function () {
-        if (vaultInit)
-            return;
-        vaultInit = true;
-
-        var html = $("#VaultConnection").html();
+        var html = $("#btcpayservervault_template").html();
+        $("#btcpayservervault").html(html);
+        html = $("#VaultConnection").html();
         $("#vaultPlaceholder").html(html);
-
+        $('#btcpayservervault').modal();
         var vaultUI = new vaultui.VaultBridgeUI(ws_uri);
-        if (await vaultUI.askForXPubs()) {
-            displayXPubs(vaultUI.xpubs);
+        $('#btcpayservervault').on('hidden.bs.modal', function () {
+            vaultUI.closeBridge();
+        });
+        if (await vaultUI.askForDevice() && await vaultUI.askForXPubs()) {
+            displayXPubs(vaultUI.xpub);
         }
     });
 });
