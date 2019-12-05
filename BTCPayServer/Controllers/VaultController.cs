@@ -91,8 +91,8 @@ namespace BTCPayServer.Controllers
                         {
                             try
                             {
-                                // On trezor T this will prompt the password!
-                                await device.PromptPinAsync(cancellationToken);
+                                // On trezor T this will prompt the password! (https://github.com/bitcoin-core/HWI/issues/283)
+                                _ = device.GetXPubAsync(new KeyPath("44'"), cancellationToken);
                             }
                             catch (HwiException ex) when (ex.ErrorCode == HwiErrorCode.DeviceAlreadyUnlocked)
                             {
@@ -318,6 +318,7 @@ namespace BTCPayServer.Controllers
                 {
                     JObject obj = new JObject();
                     obj.Add("error", "unknown-error");
+                    obj.Add("message", ex.Message);
                     obj.Add("details", ex.ToString());
                     try
                     {
