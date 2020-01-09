@@ -63,6 +63,8 @@ namespace BTCPayServer.Controllers
             ChangellyClientProvider changellyClientProvider,
             IWebHostEnvironment env, IHttpClientFactory httpClientFactory,
             PaymentMethodHandlerDictionary paymentMethodHandlerDictionary,
+            SettingsRepository settingsRepository,
+            IAuthorizationService authorizationService,
             CssThemeManager cssThemeManager)
         {
             _RateFactory = rateFactory;
@@ -76,6 +78,8 @@ namespace BTCPayServer.Controllers
             _Env = env;
             _httpClientFactory = httpClientFactory;
             _paymentMethodHandlerDictionary = paymentMethodHandlerDictionary;
+            _settingsRepository = settingsRepository;
+            _authorizationService = authorizationService;
             _CssThemeManager = cssThemeManager;
             _NetworkProvider = networkProvider;
             _ExplorerProvider = explorerProvider;
@@ -100,6 +104,8 @@ namespace BTCPayServer.Controllers
         IWebHostEnvironment _Env;
         private IHttpClientFactory _httpClientFactory;
         private readonly PaymentMethodHandlerDictionary _paymentMethodHandlerDictionary;
+        private readonly SettingsRepository _settingsRepository;
+        private readonly IAuthorizationService _authorizationService;
         private readonly CssThemeManager _CssThemeManager;
 
         [TempData]
@@ -473,12 +479,12 @@ namespace BTCPayServer.Controllers
                 store
                 .GetSupportedPaymentMethods(_NetworkProvider)
                 .OfType<DerivationSchemeSettings>()
-                .ToDictionary(c => c.Network.CryptoCode);
+                .ToDictionary(c => c.Network.CryptoCode.ToUpperInvariant());
 
             var lightningByCryptoCode = store
                 .GetSupportedPaymentMethods(_NetworkProvider)
                 .OfType<LightningSupportedPaymentMethod>()
-                .ToDictionary(c => c.CryptoCode);
+                .ToDictionary(c => c.CryptoCode.ToUpperInvariant());
 
             foreach (var paymentMethodId in _paymentMethodHandlerDictionary.Distinct().SelectMany(handler => handler.GetSupportedPaymentMethods()))
             {
@@ -486,9 +492,11 @@ namespace BTCPayServer.Controllers
                 {
                     case BitcoinPaymentType _:
                         var strategy = derivationByCryptoCode.TryGet(paymentMethodId.CryptoCode);
+                        var network = _NetworkProvider.GetNetwork<BTCPayNetwork>(paymentMethodId.CryptoCode);
                         vm.DerivationSchemes.Add(new StoreViewModel.DerivationScheme()
                         {
                             Crypto = paymentMethodId.CryptoCode,
+                            WalletSupported = network.WalletSupported,
                             Value = strategy?.ToPrettyString() ?? string.Empty,
                             WalletId = new WalletId(store.Id, paymentMethodId.CryptoCode),
                             Enabled = !excludeFilters.Match(paymentMethodId) && strategy != null

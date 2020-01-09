@@ -202,7 +202,7 @@ namespace BTCPayServer.Controllers
                                               .Select(d => ((Wallet: _walletProvider.GetWallet(d.Network),
                                                             DerivationStrategy: d.AccountDerivation,
                                                             Network: d.Network)))
-                                              .Where(_ => _.Wallet != null)
+                                              .Where(_ => _.Wallet != null && _.Network.WalletSupported)
                                               .Select(_ => (Wallet: _.Wallet,
                                                             Store: s,
                                                             Balance: GetBalanceString(_.Wallet, _.DerivationStrategy),
@@ -246,28 +246,46 @@ namespace BTCPayServer.Controllers
             var walletBlob = await walletBlobAsync;
             var walletTransactionsInfo = await walletTransactionsInfoAsync;
             var model = new ListTransactionsViewModel();
-            foreach (var tx in transactions.UnconfirmedTransactions.Transactions.Concat(transactions.ConfirmedTransactions.Transactions).ToArray())
+            if (transactions == null)
             {
-                var vm = new ListTransactionsViewModel.TransactionViewModel();
-                vm.Id = tx.TransactionId.ToString();
-                vm.Link = string.Format(CultureInfo.InvariantCulture, paymentMethod.Network.BlockExplorerLink, vm.Id);
-                vm.Timestamp = tx.Timestamp;
-                vm.Positive = tx.BalanceChange.GetValue(wallet.Network) >= 0;
-                vm.Balance = tx.BalanceChange.ToString();
-                vm.IsConfirmed = tx.Confirmations != 0;
-
-                if (walletTransactionsInfo.TryGetValue(tx.TransactionId.ToString(), out var transactionInfo))
+                TempData.SetStatusMessageModel(new StatusMessageModel()
                 {
-                    var labels = walletBlob.GetLabels(transactionInfo);
-                    vm.Labels.AddRange(labels);
-                    model.Labels.AddRange(labels);
-                    vm.Comment = transactionInfo.Comment;
+                    Severity = StatusMessageModel.StatusSeverity.Error,
+                    Message =
+                        "There was an error retrieving the transactions list. Is NBXplorer configured correctly?"
+                });
+                model.Transactions = new List<ListTransactionsViewModel.TransactionViewModel>();
+            }
+            else
+            {
+                foreach (var tx in transactions.UnconfirmedTransactions.Transactions
+                    .Concat(transactions.ConfirmedTransactions.Transactions).ToArray())
+                {
+                    var vm = new ListTransactionsViewModel.TransactionViewModel();
+                    vm.Id = tx.TransactionId.ToString();
+                    vm.Link = string.Format(CultureInfo.InvariantCulture, paymentMethod.Network.BlockExplorerLink,
+                        vm.Id);
+                    vm.Timestamp = tx.Timestamp;
+                    vm.Positive = tx.BalanceChange.GetValue(wallet.Network) >= 0;
+                    vm.Balance = tx.BalanceChange.ToString();
+                    vm.IsConfirmed = tx.Confirmations != 0;
+
+                    if (walletTransactionsInfo.TryGetValue(tx.TransactionId.ToString(), out var transactionInfo))
+                    {
+                        var labels = walletBlob.GetLabels(transactionInfo);
+                        vm.Labels.AddRange(labels);
+                        model.Labels.AddRange(labels);
+                        vm.Comment = transactionInfo.Comment;
+                    }
+
+                    if (labelFilter == null ||
+                        vm.Labels.Any(l => l.Value.Equals(labelFilter, StringComparison.OrdinalIgnoreCase)))
+                        model.Transactions.Add(vm);
                 }
 
-                if (labelFilter == null || vm.Labels.Any(l => l.Value.Equals(labelFilter, StringComparison.OrdinalIgnoreCase)))
-                    model.Transactions.Add(vm);
+                model.Transactions = model.Transactions.OrderByDescending(t => t.Timestamp).ToList();
             }
-            model.Transactions = model.Transactions.OrderByDescending(t => t.Timestamp).ToList();
+
             return View(model);
         }
 
@@ -289,7 +307,7 @@ namespace BTCPayServer.Controllers
             if (paymentMethod == null)
                 return NotFound();
             var network = this.NetworkProvider.GetNetwork<BTCPayNetwork>(walletId?.CryptoCode);
-            if (network == null)
+            if (network == null || network.ReadonlyWallet)
                 return NotFound();
             var storeData = store.GetStoreBlob();
             var rateRules = store.GetStoreBlob().GetRateRules(NetworkProvider);
@@ -351,7 +369,7 @@ namespace BTCPayServer.Controllers
             if (store == null)
                 return NotFound();
             var network = this.NetworkProvider.GetNetwork<BTCPayNetwork>(walletId?.CryptoCode);
-            if (network == null)
+            if (network == null || network.ReadonlyWallet)
                 return NotFound();
             vm.SupportRBF = network.SupportRBF;
             decimal transactionAmountSum  = 0;
@@ -584,26 +602,39 @@ namespace BTCPayServer.Controllers
                 signingKeySettings.RootFingerprint = extKey.GetPublicKey().GetHDFingerPrint();
 
             RootedKeyPath rootedKeyPath = signingKeySettings.GetRootedKeyPath();
+            if (rootedKeyPath == null)
+            {
+                ModelState.AddModelError(nameof(viewModel.SeedOrKey), "The master fingerprint and/or account key path of your seed are not set in the wallet settings.");
+                return View(viewModel);
+            }
             // The user gave the root key, let's try to rebase the PSBT, and derive the account private key
-            if (rootedKeyPath?.MasterFingerprint == extKey.GetPublicKey().GetHDFingerPrint())
+            if (rootedKeyPath.MasterFingerprint == extKey.GetPublicKey().GetHDFingerPrint())
             {
                 psbt.RebaseKeyPaths(signingKeySettings.AccountKey, rootedKeyPath);
                 signingKey = extKey.Derive(rootedKeyPath.KeyPath);
             }
-            // The user maybe gave the account key, let's try to sign with it
             else
             {
-                signingKey = extKey;
-            }
-            var balanceChange = psbt.GetBalance(settings.AccountDerivation, signingKey, rootedKeyPath);
-            if (balanceChange == Money.Zero)
-            {
-                ModelState.AddModelError(nameof(viewModel.SeedOrKey), "This seed is unable to sign this transaction. Either the seed is incorrect, or the account path has not been properly configured in the Wallet Settings.");
+                ModelState.AddModelError(nameof(viewModel.SeedOrKey), "The master fingerprint does not match the one set in your wallet settings. Probable cause are: wrong seed, wrong passphrase or wrong fingerprint in your wallet settings.");
                 return View(viewModel);
             }
-            psbt.SignAll(settings.AccountDerivation, signingKey, rootedKeyPath);
+
+            var changed = PSBTChanged(psbt, () => psbt.SignAll(settings.AccountDerivation, signingKey, rootedKeyPath));
+            if (!changed)
+            {
+                ModelState.AddModelError(nameof(viewModel.SeedOrKey), "Impossible to sign the transaction. Probable cause: Incorrect account key path in wallet settings, PSBT already signed.");
+                return View(viewModel);
+            }
             ModelState.Remove(nameof(viewModel.PSBT));
             return await WalletPSBTReady(walletId, psbt.ToBase64(), signingKey.GetWif(network.NBitcoinNetwork).ToString(), rootedKeyPath?.ToString());
+        }
+
+        private bool PSBTChanged(PSBT psbt, Action act)
+        {
+            var before = psbt.ToBase64();
+            act();
+            var after = psbt.ToBase64();
+            return before != after;
         }
 
         private string ValueToString(Money v, BTCPayNetworkBase network)
@@ -859,7 +890,7 @@ namespace BTCPayServer.Controllers
             WalletId walletId)
         {
             var derivationSchemeSettings = GetDerivationSchemeSettings(walletId);
-            if (derivationSchemeSettings == null)
+            if (derivationSchemeSettings == null || derivationSchemeSettings.Network.ReadonlyWallet)
                 return NotFound();
             var store = (await Repository.FindStore(walletId.StoreId, GetUserId()));
             var vm = new WalletSettingsViewModel()
@@ -888,7 +919,7 @@ namespace BTCPayServer.Controllers
             if (!ModelState.IsValid)
                 return View(vm);
             var derivationScheme = GetDerivationSchemeSettings(walletId);
-            if (derivationScheme == null)
+            if (derivationScheme == null || derivationScheme.Network.ReadonlyWallet)
                 return NotFound();
 
             if (command == "save")

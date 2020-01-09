@@ -151,6 +151,7 @@ namespace BTCPayServer.Tests
                 new LightningLikePaymentHandler(null, null, networkProvider, null),
             });
             InvoiceEntity invoiceEntity = new InvoiceEntity();
+            invoiceEntity.Networks = networkProvider;
             invoiceEntity.Payments = new System.Collections.Generic.List<PaymentEntity>();
             invoiceEntity.ProductInformation = new ProductInformation() {Price = 100};
             PaymentMethodDictionary paymentMethods = new PaymentMethodDictionary();
@@ -172,12 +173,15 @@ namespace BTCPayServer.Tests
             invoiceEntity.Payments.Add(
                 new PaymentEntity()
                     {
+                        
                         Accounted = true,
                         CryptoCode = "BTC",
-                        NetworkFee = 0.00000100m
+                        NetworkFee = 0.00000100m,
+                        Network = networkProvider.GetNetwork("BTC"),
                     }
                     .SetCryptoPaymentData(new BitcoinLikePaymentData()
                     {
+                        Network = networkProvider.GetNetwork("BTC"),
                         Output = new TxOut() {Value = Money.Coins(0.00151263m)}
                     }));
             accounting = btc.Calculate();
@@ -186,10 +190,12 @@ namespace BTCPayServer.Tests
                     {
                         Accounted = true,
                         CryptoCode = "BTC",
-                        NetworkFee = 0.00000100m
+                        NetworkFee = 0.00000100m,
+                        Network = networkProvider.GetNetwork("BTC")
                     }
                     .SetCryptoPaymentData(new BitcoinLikePaymentData()
                     {
+                        Network = networkProvider.GetNetwork("BTC"),
                         Output = new TxOut() {Value = accounting.Due}
                     }));
             accounting = btc.Calculate();
@@ -258,6 +264,7 @@ namespace BTCPayServer.Tests
                 new LightningLikePaymentHandler(null, null, networkProvider, null),
             });
             var entity = new InvoiceEntity();
+            entity.Networks = networkProvider;
 #pragma warning disable CS0618
             entity.Payments = new System.Collections.Generic.List<PaymentEntity>();
             entity.SetPaymentMethod(new PaymentMethod()
@@ -317,6 +324,7 @@ namespace BTCPayServer.Tests
             Assert.Equal(Money.Coins(1.3m), accounting.TotalDue);
 
             entity = new InvoiceEntity();
+            entity.Networks = networkProvider;
             entity.ProductInformation = new ProductInformation() {Price = 5000};
             PaymentMethodDictionary paymentMethods = new PaymentMethodDictionary();
             paymentMethods.Add(
@@ -445,6 +453,7 @@ namespace BTCPayServer.Tests
                 new LightningLikePaymentHandler(null, null, networkProvider, null),
             });
             var entity = new InvoiceEntity();
+            entity.Networks = networkProvider;
 #pragma warning disable CS0618
             entity.Payments = new List<PaymentEntity>();
             entity.SetPaymentMethod(new PaymentMethod()
@@ -551,10 +560,12 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = 60 * 2 * 1000)]
         [Trait("Integration", "Integration")]
+        [Trait("Lightning", "Lightning")]
         public async Task CanSetLightningServer()
         {
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLightning();
                 await tester.StartAsync();
                 await tester.EnsureChannelsSetup();
                 var user = tester.NewAccount();
@@ -590,6 +601,7 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = 60 * 2 * 1000)]
         [Trait("Integration", "Integration")]
+        [Trait("Lightning", "Lightning")]
         public async Task CanSendLightningPaymentCLightning()
         {
             await ProcessLightningPayment(LightningConnectionType.CLightning);
@@ -597,6 +609,7 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = 60 * 2 * 1000)]
         [Trait("Integration", "Integration")]
+        [Trait("Lightning", "Lightning")]
         public async Task CanSendLightningPaymentCharge()
         {
             await ProcessLightningPayment(LightningConnectionType.Charge);
@@ -604,6 +617,7 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = 60 * 2 * 1000)]
         [Trait("Integration", "Integration")]
+        [Trait("Lightning", "Lightning")]
         public async Task CanSendLightningPaymentLnd()
         {
             await ProcessLightningPayment(LightningConnectionType.LndREST);
@@ -616,6 +630,7 @@ namespace BTCPayServer.Tests
 
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLightning();
                 await tester.StartAsync();
                 await tester.EnsureChannelsSetup();
                 var user = tester.NewAccount();
@@ -797,21 +812,14 @@ namespace BTCPayServer.Tests
                 acc.GrantAccess();
                 acc.RegisterDerivationScheme("BTC", true);
                 var btcDerivationScheme = acc.DerivationScheme;
-                acc.RegisterDerivationScheme("LTC", true);
 
                 var walletController = acc.GetController<WalletsController>();
-                WalletId walletId = new WalletId(acc.StoreId, "LTC");
-                var rescan = Assert.IsType<RescanWalletModel>(Assert.IsType<ViewResult>(walletController.WalletRescan(walletId).Result).Model);
-                Assert.False(rescan.Ok);
-                Assert.True(rescan.IsFullySync);
-                Assert.False(rescan.IsSupportedByCurrency);
-                Assert.False(rescan.IsServerAdmin);
 
-                walletId = new WalletId(acc.StoreId, "BTC");
+                var walletId = new WalletId(acc.StoreId, "BTC");
                 acc.IsAdmin = true;
                 walletController = acc.GetController<WalletsController>();
                 
-                rescan = Assert.IsType<RescanWalletModel>(Assert.IsType<ViewResult>(walletController.WalletRescan(walletId).Result).Model);
+                var rescan = Assert.IsType<RescanWalletModel>(Assert.IsType<ViewResult>(walletController.WalletRescan(walletId).Result).Model);
                 Assert.True(rescan.Ok);
                 Assert.True(rescan.IsFullySync);
                 Assert.True(rescan.IsSupportedByCurrency);
@@ -938,15 +946,14 @@ namespace BTCPayServer.Tests
                 var acc = tester.NewAccount();
                 acc.GrantAccess();
                 acc.RegisterDerivationScheme("BTC");
-                acc.RegisterDerivationScheme("LTC");
 
                 var rateController = acc.GetController<RateController>();
                 var GetBaseCurrencyRatesResult = JObject.Parse(((JsonResult)rateController.GetBaseCurrencyRates("BTC", default)
                     .GetAwaiter().GetResult()).Value.ToJson()).ToObject<DataWrapper<Rate[]>>();
                 Assert.NotNull(GetBaseCurrencyRatesResult);
                 Assert.NotNull(GetBaseCurrencyRatesResult.Data);
-                Assert.Equal(2, GetBaseCurrencyRatesResult.Data.Length);
-                Assert.Single(GetBaseCurrencyRatesResult.Data.Where(o => o.Code == "LTC"));
+                var rate = Assert.Single(GetBaseCurrencyRatesResult.Data);
+                Assert.Equal("BTC", rate.Code);
 
                 var GetRatesResult = JObject.Parse(((JsonResult)rateController.GetRates(null, default)
                     .GetAwaiter().GetResult()).Value.ToJson()).ToObject<DataWrapper<Rate[]>>();
@@ -1353,10 +1360,12 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
+        [Trait("Altcoins", "Altcoins")]
         public async Task CanHaveLTCOnlyStore()
         {
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLTC();
                 await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
@@ -1480,10 +1489,12 @@ namespace BTCPayServer.Tests
 
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
+        [Trait("Altcoins", "Altcoins")]
         public async Task CanPayWithTwoCurrencies()
         {
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLTC();
                 await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
@@ -1697,10 +1708,14 @@ namespace BTCPayServer.Tests
 
         [Fact]
         [Trait("Integration", "Integration")]
+        [Trait("Altcoins", "Altcoins")]
+        [Trait("Lightning", "Lightning")]
         public async Task CanAddDerivationSchemes()
         {
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLTC();
+                tester.ActivateLightning();
                 await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
@@ -1729,15 +1744,15 @@ namespace BTCPayServer.Tests
                 Assert.False(lightningVM.Enabled);
 
                 // Only Enabling/Disabling the payment method must redirect to store page
-                var derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                var derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 Assert.True(derivationVM.Enabled);
                 derivationVM.Enabled = false;
                 Assert.IsType<RedirectToActionResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult());
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 Assert.False(derivationVM.Enabled);
 
                 // Clicking next without changing anything should send to the confirmation screen
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult()).Model;
                 Assert.True(derivationVM.Confirmation);
 
@@ -1756,18 +1771,18 @@ namespace BTCPayServer.Tests
 
                 // Removing the derivation scheme, should redirect to store page
                 var oldScheme = derivationVM.DerivationScheme;
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 derivationVM.DerivationScheme = null;
                 Assert.IsType<RedirectToActionResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult());
 
                 // Setting it again should redirect to the confirmation page
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 derivationVM.DerivationScheme = oldScheme;
                 derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult()).Model;
                 Assert.True(derivationVM.Confirmation);
 
                 // Can we upload coldcard settings? (Should fail, we are giving a mainnet file to a testnet network)
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 string content = "{\"keystore\": {\"ckcc_xpub\": \"xpub661MyMwAqRbcGVBsTGeNZN6QGVHmMHLdSA4FteGsRrEriu4pnVZMZWnruFFFXkMnyoBjyHndD3Qwcfz4MPzBUxjSevweNFQx7SAYZATtcDw\", \"xpub\": \"ypub6WWc2gWwHbdnAAyJDnR4SPL1phRh7REqrPBfZeizaQ1EmTshieRXJC3Z5YoU4wkcdKHEjQGkh6AYEzCQC1Kz3DNaWSwdc1pc8416hAjzqyD\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/49'/0'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}";
                 derivationVM.ColdcardPublicFile = TestUtils.GetFormFile("wallet.json", content);
                 derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult()).Model;
@@ -1775,7 +1790,7 @@ namespace BTCPayServer.Tests
 
                 // And with a good file? (upub)
                 content = "{\"keystore\": {\"ckcc_xpub\": \"tpubD6NzVbkrYhZ4YHNiuTdTmHRmbcPRLfqgyneZFCL1mkzkUBjXriQShxTh9HL34FK2mhieasJVk9EzJrUfkFqRNQBjiXgx3n5BhPkxKBoFmaS\", \"xpub\": \"upub5DBYp1qGgsTrkzCptMGZc2x18pquLwGrBw6nS59T4NViZ4cni1mGowQzziy85K8vzkp1jVtWrSkLhqk9KDfvrGeB369wGNYf39kX8rQfiLn\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/49'/0'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}";
-                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
+                derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(await controller.AddDerivationScheme(user.StoreId, "BTC")).Model;
                 derivationVM.ColdcardPublicFile = TestUtils.GetFormFile("wallet2.json", content);
                 derivationVM.Enabled = true;
                 derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult()).Model;
@@ -1835,21 +1850,50 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact(Timeout = 60 * 2 * 1000)]
+        [Fact]
         [Trait("Integration", "Integration")]
         public async Task CanSetPaymentMethodLimits()
         {
             using (var tester = ServerTester.Create())
             {
                 await tester.StartAsync();
-                await tester.EnsureChannelsSetup();
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 user.RegisterDerivationScheme("BTC");
+                var vm = Assert.IsType<CheckoutExperienceViewModel>(Assert.IsType<ViewResult>(user.GetController<StoresController>().CheckoutExperience()).Model);
+                vm.OnChainMinValue = "5 USD";
+                Assert.IsType<RedirectToActionResult>(user.GetController<StoresController>().CheckoutExperience(vm).Result);
+
+                var invoice = user.BitPay.CreateInvoice(new Invoice()
+                {
+                    Price = 5.5m,
+                    Currency = "USD",
+                    PosData = "posData",
+                    OrderId = "orderId",
+                    ItemDesc = "Some description",
+                    FullNotifications = true
+                }, Facade.Merchant);
+
+                Assert.Single(invoice.CryptoInfo);
+                Assert.Equal(PaymentTypes.BTCLike.ToString(), invoice.CryptoInfo[0].PaymentType);
+            }
+        }
+
+        [Fact(Timeout = 60 * 2 * 1000)]
+        [Trait("Integration", "Integration")]
+        [Trait("Lightning", "Lightning")]
+        public async Task CanSetPaymentMethodLimitsLightning()
+        {
+            using (var tester = ServerTester.Create())
+            {
+                tester.ActivateLightning();
+                await tester.StartAsync();
+                await tester.EnsureChannelsSetup();
+                var user = tester.NewAccount();
+                user.GrantAccess();
                 user.RegisterLightningNode("BTC", LightningConnectionType.Charge);
                 var vm = Assert.IsType<CheckoutExperienceViewModel>(Assert.IsType<ViewResult>(user.GetController<StoresController>().CheckoutExperience()).Model);
                 vm.LightningMaxValue = "2 USD";
-                vm.OnChainMinValue = "5 USD";
                 Assert.IsType<RedirectToActionResult>(user.GetController<StoresController>().CheckoutExperience(vm).Result);
 
                 var invoice = user.BitPay.CreateInvoice(new Invoice()
@@ -1864,19 +1908,6 @@ namespace BTCPayServer.Tests
 
                 Assert.Single(invoice.CryptoInfo);
                 Assert.Equal(PaymentTypes.LightningLike.ToString(), invoice.CryptoInfo[0].PaymentType);
-
-                invoice = user.BitPay.CreateInvoice(new Invoice()
-                {
-                    Price = 5.5m,
-                    Currency = "USD",
-                    PosData = "posData",
-                    OrderId = "orderId",
-                    ItemDesc = "Some description",
-                    FullNotifications = true
-                }, Facade.Merchant);
-
-                Assert.Single(invoice.CryptoInfo);
-                Assert.Equal(PaymentTypes.BTCLike.ToString(), invoice.CryptoInfo[0].PaymentType);
             }
         }
 
@@ -2685,6 +2716,47 @@ noninventoryitem:
             factory.Providers["kraken"].GetRatesAsync(default).GetAwaiter().GetResult();
         }
 
+
+        [Fact(Timeout = TestTimeout)]
+        [Trait("Integration", "Integration")]
+        public async Task CanExportBackgroundFetcherState()
+        {
+            var factory = CreateBTCPayRateFactory();
+            var provider = (BackgroundFetcherRateProvider)factory.Providers["kraken"];
+            await provider.GetRatesAsync(default);
+            var state = provider.GetState();
+            Assert.Single(state.Rates, r => r.Pair == new CurrencyPair("BTC", "EUR"));
+            var provider2 = new BackgroundFetcherRateProvider("kraken", provider.Inner)
+            {
+                RefreshRate = provider.RefreshRate,
+                ValidatyTime = provider.ValidatyTime
+            };
+            using (var cts = new CancellationTokenSource())
+            {
+                cts.Cancel();
+                // Should throw
+                await Assert.ThrowsAsync<OperationCanceledException>(async () => await provider2.GetRatesAsync(cts.Token));
+            }
+            provider2.LoadState(state);
+            Assert.Equal(provider.LastRequested, provider2.LastRequested);
+            using (var cts = new CancellationTokenSource())
+            {
+                cts.Cancel();
+                // Should not throw, as things should be cached
+                await provider2.GetRatesAsync(cts.Token);
+            }
+            Assert.Equal(provider.ExchangeName, provider2.ExchangeName);
+            Assert.Equal(provider.NextUpdate, provider2.NextUpdate);
+            Assert.NotEqual(provider.LastRequested, provider2.LastRequested);
+            Assert.Equal(provider.Expiration, provider2.Expiration);
+
+            var str = JsonConvert.SerializeObject(state);
+            var state2 = JsonConvert.DeserializeObject<BackgroundFetcherState>(str);
+            var str2 = JsonConvert.SerializeObject(state2);
+            Assert.Equal(str, str2);
+        }
+
+
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public void CanGetRateCryptoCurrenciesByDefault()
@@ -2850,7 +2922,7 @@ noninventoryitem:
             spy.AssertHit();
 
             factory.Providers.Clear();
-            var fetch = new BackgroundFetcherRateProvider(spy);
+            var fetch = new BackgroundFetcherRateProvider("spy", spy);
             fetch.DoNotAutoFetchIfExpired = true;
             factory.Providers.Add("bittrex", fetch);
             fetchedRate = fetcher.FetchRate(CurrencyPair.Parse("BTC_USD"), rateRules, default).GetAwaiter().GetResult();
@@ -2902,10 +2974,14 @@ noninventoryitem:
         
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
-       public  async Task CanCreateInvoiceWithSpecificPaymentMethods()
+        [Trait("Altcoins", "Altcoins")]
+        [Trait("Lightning", "Lightning")]
+        public  async Task CanCreateInvoiceWithSpecificPaymentMethods()
         {
             using (var tester = ServerTester.Create())
             {
+                tester.ActivateLightning();
+                tester.ActivateLTC();
                 await tester.StartAsync();
                 await tester.EnsureChannelsSetup();
                 var user = tester.NewAccount();
