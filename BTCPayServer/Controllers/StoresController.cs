@@ -9,7 +9,6 @@ using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Models;
-using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Changelly;
@@ -23,18 +22,12 @@ using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.Extensions.Options;
 using NBitcoin;
 using NBitcoin.DataEncoders;
-using Newtonsoft.Json;
-#if NETCOREAPP21
-using IWebHostEnvironment = Microsoft.AspNetCore.Hosting.IHostingEnvironment;
-#endif
 
 namespace BTCPayServer.Controllers
 {
@@ -65,6 +58,7 @@ namespace BTCPayServer.Controllers
             PaymentMethodHandlerDictionary paymentMethodHandlerDictionary,
             SettingsRepository settingsRepository,
             IAuthorizationService authorizationService,
+            EventAggregator eventAggregator,
             CssThemeManager cssThemeManager)
         {
             _RateFactory = rateFactory;
@@ -81,6 +75,7 @@ namespace BTCPayServer.Controllers
             _settingsRepository = settingsRepository;
             _authorizationService = authorizationService;
             _CssThemeManager = cssThemeManager;
+            _EventAggregator = eventAggregator;
             _NetworkProvider = networkProvider;
             _ExplorerProvider = explorerProvider;
             _FeeRateProvider = feeRateProvider;
@@ -107,6 +102,7 @@ namespace BTCPayServer.Controllers
         private readonly SettingsRepository _settingsRepository;
         private readonly IAuthorizationService _authorizationService;
         private readonly CssThemeManager _CssThemeManager;
+        private readonly EventAggregator _EventAggregator;
 
         [TempData]
         public bool StoreNotConfigured
@@ -202,14 +198,15 @@ namespace BTCPayServer.Controllers
         [Route("{storeId}/rates")]
         public IActionResult Rates()
         {
+            var exchanges = GetSupportedExchanges();
             var storeBlob = CurrentStore.GetStoreBlob();
             var vm = new RatesViewModel();
-            vm.SetExchangeRates(GetSupportedExchanges(), storeBlob.PreferredExchange ?? CoinAverageRateProvider.CoinAverageName);
+            vm.SetExchangeRates(exchanges, storeBlob.PreferredExchange ?? CoinGeckoRateProvider.CoinGeckoName);
             vm.Spread = (double)(storeBlob.Spread * 100m);
             vm.StoreId = CurrentStore.Id;
             vm.Script = storeBlob.GetRateRules(_NetworkProvider).ToString();
             vm.DefaultScript = storeBlob.GetDefaultRateRules(_NetworkProvider).ToString();
-            vm.AvailableExchanges = GetSupportedExchanges();
+            vm.AvailableExchanges = exchanges;
             vm.DefaultCurrencyPairs = storeBlob.GetDefaultCurrencyPairString();
             vm.ShowScripting = storeBlob.RateScripting;
             return View(vm);
@@ -219,7 +216,16 @@ namespace BTCPayServer.Controllers
         [Route("{storeId}/rates")]
         public async Task<IActionResult> Rates(RatesViewModel model, string command = null, string storeId = null, CancellationToken cancellationToken = default)
         {
-            model.SetExchangeRates(GetSupportedExchanges(), model.PreferredExchange);
+            if (command == "scripting-on")
+            {
+                return RedirectToAction(nameof(ShowRateRules), new {scripting = true,storeId = model.StoreId});
+            }else if (command == "scripting-off")
+            {
+                return RedirectToAction(nameof(ShowRateRules), new {scripting = false, storeId = model.StoreId});
+            }
+
+            var exchanges = GetSupportedExchanges();
+            model.SetExchangeRates(exchanges, model.PreferredExchange);
             model.StoreId = storeId ?? model.StoreId;
             CurrencyPair[] currencyPairs = null;
             try
@@ -242,14 +248,14 @@ namespace BTCPayServer.Controllers
 
             var blob = CurrentStore.GetStoreBlob();
             model.DefaultScript = blob.GetDefaultRateRules(_NetworkProvider).ToString();
-            model.AvailableExchanges = GetSupportedExchanges();
+            model.AvailableExchanges = exchanges;
 
             blob.PreferredExchange = model.PreferredExchange;
             blob.Spread = (decimal)model.Spread / 100.0m;
             blob.DefaultCurrencyPairs = currencyPairs;
             if (!model.ShowScripting)
             {
-                if (!GetSupportedExchanges().Select(c => c.Name).Contains(blob.PreferredExchange, StringComparer.OrdinalIgnoreCase))
+                if (!exchanges.Any(provider => provider.Id.Equals(model.PreferredExchange, StringComparison.InvariantCultureIgnoreCase)))
                 {
                     ModelState.AddModelError(nameof(model.PreferredExchange), $"Unsupported exchange ({model.RateSource})");
                     return View(model);
@@ -335,7 +341,7 @@ namespace BTCPayServer.Controllers
                 Description = scripting ?
                                 "This action will modify your current rate sources. Are you sure to turn on rate rules scripting? (Advanced users)"
                                 : "This action will delete your rate script. Are you sure to turn off rate rules scripting?",
-                ButtonClass = "btn-primary"
+                ButtonClass = scripting ? "btn-primary" : "btn-danger"
             });
         }
 
@@ -493,13 +499,16 @@ namespace BTCPayServer.Controllers
                     case BitcoinPaymentType _:
                         var strategy = derivationByCryptoCode.TryGet(paymentMethodId.CryptoCode);
                         var network = _NetworkProvider.GetNetwork<BTCPayNetwork>(paymentMethodId.CryptoCode);
+                        var value = strategy?.ToPrettyString() ?? string.Empty;
+                        
                         vm.DerivationSchemes.Add(new StoreViewModel.DerivationScheme()
                         {
                             Crypto = paymentMethodId.CryptoCode,
                             WalletSupported = network.WalletSupported,
-                            Value = strategy?.ToPrettyString() ?? string.Empty,
+                            Value = value,
                             WalletId = new WalletId(store.Id, paymentMethodId.CryptoCode),
-                            Enabled = !excludeFilters.Match(paymentMethodId) && strategy != null
+                            Enabled = !excludeFilters.Match(paymentMethodId) && strategy != null,
+                            Collapsed = network is ElementsBTCPayNetwork elementsBTCPayNetwork && elementsBTCPayNetwork.NetworkCryptoCode != elementsBTCPayNetwork.CryptoCode && string.IsNullOrEmpty(value)
                         });
                         break;
                     case LightningPaymentType _:
@@ -600,13 +609,13 @@ namespace BTCPayServer.Controllers
             return RedirectToAction(nameof(UserStoresController.ListStores), "UserStores");
         }
 
-        private CoinAverageExchange[] GetSupportedExchanges()
+        private IEnumerable<AvailableRateProvider> GetSupportedExchanges()
         {
-            return _RateFactory.RateProviderFactory.GetSupportedExchanges()
-                    .Where(r => !string.IsNullOrWhiteSpace(r.Value.Display))
-                    .Select(c => c.Value)
-                    .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
+            var exchanges = _RateFactory.RateProviderFactory.GetSupportedExchanges();
+            return exchanges
+                .Where(r => !string.IsNullOrWhiteSpace(r.Name))
+                .OrderBy(s => s.Id, StringComparer.OrdinalIgnoreCase);
+
         }
 
         private DerivationSchemeSettings ParseDerivationStrategy(string derivationScheme, Script hint, BTCPayNetwork network)
@@ -753,7 +762,7 @@ namespace BTCPayServer.Controllers
             ViewBag.ShowMenu = false;
             var stores = await _Repo.GetStoresByUserId(userId);
             model.Stores = new SelectList(stores.Where(s => s.Role == StoreRoles.Owner), nameof(CurrentStore.Id), nameof(CurrentStore.StoreName));
-            if (model.Stores.Count() == 0)
+            if (!model.Stores.Any())
             {
                 TempData[WellKnownTempData.ErrorMessage] = "You need to be owner of at least one store before pairing";
                 return RedirectToAction(nameof(UserStoresController.ListStores), "UserStores");
@@ -771,14 +780,17 @@ namespace BTCPayServer.Controllers
 
         [HttpPost]
         [Route("{storeId}/tokens/apikey")]
-        public async Task<IActionResult> GenerateAPIKey()
+        public async Task<IActionResult> GenerateAPIKey(string storeId)
         {
             var store = HttpContext.GetStoreData();
             if (store == null)
                 return NotFound();
             await _TokenRepository.GenerateLegacyAPIKey(CurrentStore.Id);
             TempData[WellKnownTempData.SuccessMessage] = "API Key re-generated";
-            return RedirectToAction(nameof(ListTokens));
+            return RedirectToAction(nameof(ListTokens), new
+            {
+                storeId
+            });
         }
 
         [HttpGet]
@@ -830,9 +842,9 @@ namespace BTCPayServer.Controllers
             if (pairingResult == PairingResult.Complete || pairingResult == PairingResult.Partial)
             {
                 var excludeFilter = store.GetStoreBlob().GetExcludedPaymentMethods();
-                StoreNotConfigured = store.GetSupportedPaymentMethods(_NetworkProvider)
+                StoreNotConfigured = !store.GetSupportedPaymentMethods(_NetworkProvider)
                                           .Where(p => !excludeFilter.Match(p.PaymentId))
-                                          .Count() == 0;
+                                          .Any();
                 TempData[WellKnownTempData.SuccessMessage] = "Pairing is successful";
                 if (pairingResult == PairingResult.Partial)
                     TempData[WellKnownTempData.SuccessMessage] = "Server initiated pairing code: " + pairingCode;

@@ -86,14 +86,14 @@ namespace BTCPayServer.Configuration
 
             var supportedChains = conf.GetOrDefault<string>("chains", "btc")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(t => t.ToUpperInvariant()).ToList();
+                .Select(t => t.ToUpperInvariant()).ToHashSet();
 
             var networkProvider = new BTCPayNetworkProvider(NetworkType);
             var filtered = networkProvider.Filter(supportedChains.ToArray());
             var elementsBased = filtered.GetAll().OfType<ElementsBTCPayNetwork>();
             var parentChains = elementsBased.Select(network => network.NetworkCryptoCode.ToUpperInvariant()).Distinct();
             var allSubChains = networkProvider.GetAll().OfType<ElementsBTCPayNetwork>()
-                .Where(network => parentChains.Contains(network.NetworkCryptoCode)).Select(network => network.CryptoCode);
+                .Where(network => parentChains.Contains(network.NetworkCryptoCode)).Select(network => network.CryptoCode.ToUpperInvariant());
             supportedChains.AddRange(allSubChains);
             NetworkProvider = networkProvider.Filter(supportedChains.ToArray());
             foreach (var chain in supportedChains)
@@ -141,6 +141,7 @@ namespace BTCPayServer.Configuration
                 ExternalServices.Load(net.CryptoCode, conf);
             }
 
+            ExternalServices.LoadNonCryptoServices(conf);
             Logs.Configuration.LogInformation("Supported chains: " + String.Join(',', supportedChains.ToArray()));
 
             var services = conf.GetOrDefault<string>("externalservices", null);
