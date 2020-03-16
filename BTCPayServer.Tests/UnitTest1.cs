@@ -150,17 +150,19 @@ namespace BTCPayServer.Tests
                 new BitcoinLikePaymentHandler(null, networkProvider, null, null),
                 new LightningLikePaymentHandler(null, null, networkProvider, null),
             });
+            var networkBTC = networkProvider.GetNetwork("BTC");
+            var networkLTC = networkProvider.GetNetwork("LTC");
             InvoiceEntity invoiceEntity = new InvoiceEntity();
             invoiceEntity.Networks = networkProvider;
             invoiceEntity.Payments = new System.Collections.Generic.List<PaymentEntity>();
             invoiceEntity.ProductInformation = new ProductInformation() {Price = 100};
             PaymentMethodDictionary paymentMethods = new PaymentMethodDictionary();
-            paymentMethods.Add(new PaymentMethod() {CryptoCode = "BTC", Rate = 10513.44m,}.SetPaymentMethodDetails(
+            paymentMethods.Add(new PaymentMethod() {Network = networkBTC, CryptoCode = "BTC", Rate = 10513.44m,}.SetPaymentMethodDetails(
                 new BTCPayServer.Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod()
                 {
                     NextNetworkFee = Money.Coins(0.00000100m), DepositAddress = dummy
                 }));
-            paymentMethods.Add(new PaymentMethod() {CryptoCode = "LTC", Rate = 216.79m}.SetPaymentMethodDetails(
+            paymentMethods.Add(new PaymentMethod() {Network = networkLTC, CryptoCode = "LTC", Rate = 216.79m}.SetPaymentMethodDetails(
                 new BTCPayServer.Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod()
                 {
                     NextNetworkFee = Money.Coins(0.00010000m), DepositAddress = dummy
@@ -173,7 +175,7 @@ namespace BTCPayServer.Tests
             invoiceEntity.Payments.Add(
                 new PaymentEntity()
                     {
-                        
+
                         Accounted = true,
                         CryptoCode = "BTC",
                         NetworkFee = 0.00000100m,
@@ -315,7 +317,7 @@ namespace BTCPayServer.Tests
             entity.Payments.Add(
                 new PaymentEntity()
                 {
-                    Output = new TxOut(Money.Coins(0.2m), new Key()), 
+                    Output = new TxOut(Money.Coins(0.2m), new Key()),
                     Accounted = true
                 });
 
@@ -330,15 +332,15 @@ namespace BTCPayServer.Tests
             paymentMethods.Add(
                 new PaymentMethod()
                 {
-                    CryptoCode = "BTC", 
-                    Rate = 1000, 
+                    CryptoCode = "BTC",
+                    Rate = 1000,
                     NextNetworkFee = Money.Coins(0.1m)
                 });
             paymentMethods.Add(
                 new PaymentMethod()
                 {
-                    CryptoCode = "LTC", 
-                    Rate = 500, 
+                    CryptoCode = "LTC",
+                    Rate = 500,
                     NextNetworkFee = Money.Coins(0.01m)
                 });
             entity.SetPaymentMethods(paymentMethods);
@@ -518,6 +520,39 @@ namespace BTCPayServer.Tests
                     var localInvoice = user.BitPay.GetInvoice(invoice.Id, Facade.Merchant);
                     Assert.Equal("paid", localInvoice.Status);
                 });
+            }
+        }
+
+        [Fact]
+        [Trait("Integration", "Integration")]
+        public async Task CanThrowBitpay404Error()
+        {
+            using (var tester = ServerTester.Create())
+            {
+                await tester.StartAsync();
+                var user = tester.NewAccount();
+                user.GrantAccess();
+                user.RegisterDerivationScheme("BTC");
+
+                var invoice = user.BitPay.CreateInvoice(new Invoice()
+                {
+                    Buyer = new Buyer() { email = "test@fwf.com" },
+                    Price = 5000.0m,
+                    Currency = "USD",
+                    PosData = "posData",
+                    OrderId = "orderId",
+                    ItemDesc = "Some description",
+                    FullNotifications = true
+                }, Facade.Merchant);
+
+                try
+                {
+                    var throwsBitpay404Error = user.BitPay.GetInvoice(invoice.Id + "123");
+                }
+                catch (BitPayException ex)
+                {
+                    Assert.Equal("Object not found", ex.Errors.First());
+                }
             }
         }
 
@@ -819,7 +854,7 @@ namespace BTCPayServer.Tests
                 var walletId = new WalletId(acc.StoreId, "BTC");
                 acc.IsAdmin = true;
                 walletController = acc.GetController<WalletsController>();
-                
+
                 var rescan = Assert.IsType<RescanWalletModel>(Assert.IsType<ViewResult>(walletController.WalletRescan(walletId).Result).Model);
                 Assert.True(rescan.Ok);
                 Assert.True(rescan.IsFullySync);
@@ -1065,6 +1100,45 @@ namespace BTCPayServer.Tests
                     invoice = user.BitPay.GetInvoice(invoice.Id);
                     Assert.Equal(payment2, invoice.BtcPaid);
                     Assert.Equal("False", invoice.ExceptionStatus.ToString());
+                });
+
+
+                Logs.Tester.LogInformation($"Let's test out rbf payments where the payment gets sent elsehwere instead");
+                var invoice2 = user.BitPay.CreateInvoice(new Invoice()
+                {
+                    Price = 0.01m,
+                    Currency = "BTC"
+                }, Facade.Merchant);
+
+                var invoice2Address = BitcoinAddress.Create(invoice2.BitcoinAddress, user.SupportedNetwork.NBitcoinNetwork);
+                uint256 invoice2tx1Id = await tester.ExplorerNode.SendToAddressAsync(invoice2Address, invoice2.BtcDue, replaceable: true);
+                Transaction invoice2Tx1 = null;
+                TestUtils.Eventually(() =>
+                {
+                    invoice2 = user.BitPay.GetInvoice(invoice2.Id);
+                    Assert.Equal("paid", invoice2.Status);
+                    invoice2Tx1 = tester.ExplorerNode.GetRawTransaction(new uint256(invoice2tx1Id));
+                });
+                var invoice2Tx2 = invoice2Tx1.Clone();
+                foreach (var input in invoice2Tx2.Inputs)
+                {
+                    input.ScriptSig = Script.Empty; //Strip signatures
+                    input.WitScript = WitScript.Empty; //Strip signatures
+                }
+
+                output = invoice2Tx2.Outputs.First(o =>
+                    o.ScriptPubKey == invoice2Address.ScriptPubKey);
+                output.Value -= new Money(10_000, MoneyUnit.Satoshi);
+                output.ScriptPubKey = new Key().ScriptPubKey;
+                invoice2Tx2 = await tester.ExplorerNode.SignRawTransactionAsync(invoice2Tx2);
+                await tester.ExplorerNode.SendRawTransactionAsync(invoice2Tx2);
+                tester.ExplorerNode.Generate(1);
+                await TestUtils.EventuallyAsync(async () =>
+                {
+                    var i = await tester.PayTester.InvoiceRepository.GetInvoice(invoice2.Id);
+                    Assert.Equal(InvoiceStatus.New, i.Status);
+                    Assert.Single(i.GetPayments());
+                    Assert.False(i.GetPayments().First().Accounted);
                 });
             }
         }
@@ -1788,7 +1862,7 @@ namespace BTCPayServer.Tests
                 string content = "{\"keystore\": {\"ckcc_xpub\": \"xpub661MyMwAqRbcGVBsTGeNZN6QGVHmMHLdSA4FteGsRrEriu4pnVZMZWnruFFFXkMnyoBjyHndD3Qwcfz4MPzBUxjSevweNFQx7SAYZATtcDw\", \"xpub\": \"ypub6WWc2gWwHbdnAAyJDnR4SPL1phRh7REqrPBfZeizaQ1EmTshieRXJC3Z5YoU4wkcdKHEjQGkh6AYEzCQC1Kz3DNaWSwdc1pc8416hAjzqyD\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/49'/0'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}";
                 derivationVM.ColdcardPublicFile = TestUtils.GetFormFile("wallet.json", content);
                 derivationVM = (DerivationSchemeViewModel)Assert.IsType<ViewResult>(controller.AddDerivationScheme(user.StoreId, derivationVM, "BTC").GetAwaiter().GetResult()).Model;
-                Assert.False(derivationVM.Confirmation); // Should fail, we are giving a mainnet file to a testnet network 
+                Assert.False(derivationVM.Confirmation); // Should fail, we are giving a mainnet file to a testnet network
 
                 // And with a good file? (upub)
                 content = "{\"keystore\": {\"ckcc_xpub\": \"tpubD6NzVbkrYhZ4YHNiuTdTmHRmbcPRLfqgyneZFCL1mkzkUBjXriQShxTh9HL34FK2mhieasJVk9EzJrUfkFqRNQBjiXgx3n5BhPkxKBoFmaS\", \"xpub\": \"upub5DBYp1qGgsTrkzCptMGZc2x18pquLwGrBw6nS59T4NViZ4cni1mGowQzziy85K8vzkp1jVtWrSkLhqk9KDfvrGeB369wGNYf39kX8rQfiLn\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/49'/0'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}";
@@ -1970,15 +2044,15 @@ donation:
                 Assert.Equal(10.00m, orangeInvoice.Price);
                 Assert.Equal("CAD", orangeInvoice.Currency);
                 Assert.Equal("orange", orangeInvoice.ItemDesc);
-                
-                
+
+
                 Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 0, null, null, null, null, "apple").Result);
 
                 invoices = user.BitPay.GetInvoices();
                 var appleInvoice = invoices.SingleOrDefault(invoice => invoice.ItemCode.Equals("apple"));
                 Assert.NotNull(appleInvoice);
                 Assert.Equal("good apple", appleInvoice.ItemDesc);
-                
+
 
                 // testing custom amount
                 var action = Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 6.6m, null, null, null, null, "donation").Result);
@@ -2026,8 +2100,8 @@ donation:
                     Assert.Equal(test.ExpectedDivisibility, vmview.CurrencyInfo.Divisibility);
                     Assert.Equal(test.ExpectedSymbolSpace, vmview.CurrencyInfo.SymbolSpace);
                 }
-                
-                
+
+
                 //test inventory related features
                 vmpos = Assert.IsType<UpdatePointOfSaleViewModel>(Assert.IsType<ViewResult>(apps.UpdatePointOfSale(appId).Result).Model);
                 vmpos.Title = "hello";
@@ -2040,13 +2114,13 @@ inventoryitem:
 noninventoryitem:
   price: 10.0";
                 Assert.IsType<RedirectToActionResult>(apps.UpdatePointOfSale(appId, vmpos).Result);
-                
+
                 //inventoryitem has 1 item available
                 Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 1, null, null, null, null, "inventoryitem").Result);
                 //we already bought all available stock so this should fail
                 await Task.Delay(100);
                 Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 1, null, null, null, null, "inventoryitem").Result);
-                
+
                 //inventoryitem has unlimited items available
                 Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 1, null, null, null, null, "noninventoryitem").Result);
                 Assert.IsType<RedirectToActionResult>(publicApps.ViewPointOfSale(appId, 1, null, null, null, null, "noninventoryitem").Result);
@@ -2056,7 +2130,7 @@ noninventoryitem:
                 Assert.Equal(2, invoices.Count(invoice => invoice.ItemCode.Equals("noninventoryitem")));
                 var inventoryItemInvoice = Assert.Single(invoices.Where(invoice => invoice.ItemCode.Equals("inventoryitem")));
                 Assert.NotNull(inventoryItemInvoice);
-                
+
                 //let's mark the inventoryitem invoice as invalid, thsi should return the item to back in stock
                 var controller = tester.PayTester.GetController<InvoiceController>(user.UserId, user.StoreId);
                 var appService = tester.PayTester.GetService<AppService>();
@@ -2068,7 +2142,7 @@ noninventoryitem:
                     vmpos = Assert.IsType<UpdatePointOfSaleViewModel>(Assert.IsType<ViewResult>(apps.UpdatePointOfSale(appId).Result).Model);
                     Assert.Equal(1, appService.Parse(vmpos.Template, "BTC").Single(item => item.Id == "inventoryitem").Inventory);
                 }, 10000);
-                
+
             }
         }
 
@@ -2251,7 +2325,7 @@ noninventoryitem:
 
                 var cashCow = tester.ExplorerNode;
                 var invoiceAddress = BitcoinAddress.Create(invoice.CryptoInfo[0].Address, cashCow.Network);
-                // 
+                //
                 var firstPayment = invoice.CryptoInfo[0].TotalDue - 3 * networkFee;
                 cashCow.SendToAddress(invoiceAddress, firstPayment);
                 Thread.Sleep(1000); // prevent race conditions, ordering payments
@@ -2458,12 +2532,15 @@ noninventoryitem:
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 user.RegisterDerivationScheme("BTC");
+                DateTimeOffset expiration = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(21);
                 var invoice1 = user.BitPay.CreateInvoice(new Invoice()
                 {
                     Price = 0.000000012m,
                     Currency = "USD",
-                    FullNotifications = true
+                    FullNotifications = true,
+                    ExpirationTime = expiration
                 }, Facade.Merchant);
+                Assert.Equal(expiration.ToUnixTimeSeconds(), invoice1.ExpirationTime.ToUnixTimeSeconds());
                 var invoice2 = user.BitPay.CreateInvoice(new Invoice()
                 {
                     Price = 0.000000019m,
@@ -2689,7 +2766,7 @@ noninventoryitem:
                 .Select(p => (ExpectedName: p.Key, ResultAsync: p.Value.GetRatesAsync(default), Fetcher: (BackgroundFetcherRateProvider)p.Value))
                 .ToList())
             {
-                
+
                 Logs.Tester.LogInformation($"Testing {result.ExpectedName}");
                 result.Fetcher.InvalidateCache();
                 var exchangeRates = new ExchangeRates(result.ExpectedName, result.ResultAsync.Result);
@@ -2701,6 +2778,11 @@ noninventoryitem:
                 {
                     Assert.Contains(exchangeRates.ByExchange[result.ExpectedName],
                         e => e.CurrencyPair == new CurrencyPair("BTC", "JPY") && e.BidAsk.Bid > 100m); // 1BTC will always be more than 100JPY
+                }
+                else if (result.ExpectedName == "polispay")
+                {
+                    Assert.Contains(exchangeRates.ByExchange[result.ExpectedName],
+                        e => e.CurrencyPair == new CurrencyPair("BTC", "POLIS") && e.BidAsk.Bid > 1.0m); // 1BTC will always be more than 1 POLIS
                 }
                 else
                 {
@@ -2959,7 +3041,7 @@ noninventoryitem:
             Assert.True(DerivationSchemeSettings.TryParseFromColdcard("{\"keystore\": {\"ckcc_xpub\": \"tpubD6NzVbkrYhZ4YHNiuTdTmHRmbcPRLfqgyneZFCL1mkzkUBjXriQShxTh9HL34FK2mhieasJVk9EzJrUfkFqRNQBjiXgx3n5BhPkxKBoFmaS\", \"xpub\": \"vpub5YjYxTemJ39tFRnuAhwduyxG2tKGjoEpmvqVQRPqdYrqa6YGoeSzBtHXaJUYB19zDbXs3JjbEcVWERjQBPf9bEfUUMZNMv1QnMyHV8JPqyf\", \"label\": \"Coldcard Import 0x60d1af8b\", \"ckcc_xfp\": 1624354699, \"type\": \"hardware\", \"hw_type\": \"coldcard\", \"derivation\": \"m/84'/1'/0'\"}, \"wallet_type\": \"standard\", \"use_encryption\": false, \"seed_version\": 17}", testnet, out settings));
             Assert.True(settings.AccountDerivation is DirectDerivationStrategy s3 && s3.Segwit);
         }
-        
+
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         [Trait("Altcoins", "Altcoins")]
@@ -2980,8 +3062,8 @@ noninventoryitem:
 
                 var invoice = await user.BitPay.CreateInvoiceAsync(new Invoice(100, "BTC"));
                 Assert.Equal(2, invoice.SupportedTransactionCurrencies.Count);
-               
-                
+
+
                 invoice = await user.BitPay.CreateInvoiceAsync(new Invoice(100, "BTC")
                 {
                     SupportedTransactionCurrencies = new Dictionary<string, InvoiceSupportedTransactionCurrency>()
@@ -2992,13 +3074,13 @@ noninventoryitem:
                         }}
                     }
                 });
-                
+
                 Assert.Single(invoice.SupportedTransactionCurrencies);
             }
         }
-        
 
-        
+
+
         [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public async Task CanLoginWithNoSecondaryAuthSystemsOrRequestItWhenAdded()
@@ -3019,7 +3101,7 @@ noninventoryitem:
                })).ActionName);
 
                var manageController = user.GetController<ManageController>();
-               
+
                //by default no u2f devices available
                Assert.Empty(Assert.IsType<U2FAuthenticationViewModel>(Assert.IsType<ViewResult>(await manageController.U2FAuthentication()).Model).Devices);
                var addRequest = Assert.IsType<AddU2FDeviceViewModel>(Assert.IsType<ViewResult>(manageController.AddU2FDevice("label")).Model);
@@ -3048,10 +3130,10 @@ noninventoryitem:
                    };
                    await context.U2FDevices.AddAsync(newDevice);
                    await context.SaveChangesAsync();
-                   
+
                    Assert.NotNull(newDevice.Id);
                    Assert.NotEmpty(Assert.IsType<U2FAuthenticationViewModel>(Assert.IsType<ViewResult>(await manageController.U2FAuthentication()).Model).Devices);
-                   
+
                }
 
                //check if we are showing the u2f login screen now
@@ -3065,10 +3147,10 @@ noninventoryitem:
                var vm = Assert.IsType<SecondaryLoginViewModel>(secondLoginResult.Model);
                //2fa was never enabled for user so this should be empty
                Assert.Null(vm.LoginWith2FaViewModel);
-               Assert.NotNull(vm.LoginWithU2FViewModel);               
+               Assert.NotNull(vm.LoginWithU2FViewModel);
             }
         }
-        
+
         private static bool IsMapped(Invoice invoice, ApplicationDbContext ctx)
         {
             var h = BitcoinAddress.Create(invoice.BitcoinAddress, Network.RegTest).ScriptPubKey.Hash.ToString();

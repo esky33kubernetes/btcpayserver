@@ -196,12 +196,8 @@ namespace BTCPayServer.Services.Rates
                     throw new APIException(text);
                 }
                 api.ProcessResponse(new InternalHttpWebResponse(webHttpResponse));
-                Action<IAPIRequestMaker, RequestMakerState, object>? requestStateChanged = RequestStateChanged;
-                if (requestStateChanged != null)
-                {
-                    requestStateChanged!(this, RequestMakerState.Finished, text);
-                    return text;
-                }
+
+                RequestStateChanged?.Invoke(this, RequestMakerState.Finished, text);
                 return text;
             }
             catch (Exception arg)

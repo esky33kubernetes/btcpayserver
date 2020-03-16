@@ -18,6 +18,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Lightning;
 using BTCPayServer.Lightning.CLightning;
+using BTCPayServer.Models;
+using BTCPayServer.Views.Manage;
 using BTCPayServer.Views.Stores;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -70,19 +72,20 @@ namespace BTCPayServer.Tests
             Driver.AssertNoError();
         }
 
-        internal void AssertHappyMessage()
+        internal IWebElement AssertHappyMessage(StatusMessageModel.StatusSeverity severity = StatusMessageModel.StatusSeverity.Success)
         {
             using var cts = new CancellationTokenSource(20_000);
             while (!cts.IsCancellationRequested)
             {
-                var success = Driver.FindElements(By.ClassName("alert-success")).Where(el => el.Displayed).Any();
-                if (success)
-                    return;
+                var result = Driver.FindElements(By.ClassName($"alert-{StatusMessageModel.ToString(severity)}")).Where(el => el.Displayed);
+                if (result.Any())
+                    return result.First();
                 Thread.Sleep(100);
             }
             Logs.Tester.LogInformation(this.Driver.PageSource);
-            Assert.True(false, "Should have shown happy message");
-        }
+            Assert.True(false, $"Should have shown {severity} message");
+            return null;
+         }
 
         public static readonly TimeSpan ImplicitWait = TimeSpan.FromSeconds(10);
         public string Link(string relativeLink)
@@ -123,7 +126,8 @@ namespace BTCPayServer.Tests
             Driver.FindElement(By.Id($"Modify{cryptoCode}")).ForceClick();
             Driver.FindElement(By.Id("import-from-btn")).ForceClick();
             Driver.FindElement(By.Id("nbxplorergeneratewalletbtn")).ForceClick();
-            Driver.FindElement(By.Id("ExistingMnemonic")).SendKeys(seed);
+            Thread.Sleep(200); // allow for modal to fade in
+            Driver.WaitForElement(By.Id("ExistingMnemonic")).SendKeys(seed);
             SetCheckbox(Driver.FindElement(By.Id("SavePrivateKeys")), privkeys);
             SetCheckbox(Driver.FindElement(By.Id("ImportKeysToRPC")), importkeys);
             Driver.FindElement(By.Id("btn-generate")).ForceClick();
@@ -202,7 +206,7 @@ namespace BTCPayServer.Tests
 
         internal void AssertNotFound()
         {
-            Assert.Contains("Status Code: 404; Not Found", Driver.PageSource);
+            Assert.Contains("404 - Page not found</h1>", Driver.PageSource);
         }
 
         public void GoToHome()
@@ -269,6 +273,20 @@ namespace BTCPayServer.Tests
         public void GoToInvoices()
         {
             Driver.FindElement(By.Id("Invoices")).Click();
+        }
+        
+        public void GoToProfile(ManageNavPages navPages =  ManageNavPages.Index)
+        {
+            Driver.FindElement(By.Id("MySettings")).Click();
+            if (navPages != ManageNavPages.Index)
+            {
+                Driver.FindElement(By.Id(navPages.ToString())).Click();
+            }
+        }
+
+        public void GoToLogin()
+        {
+            Driver.Navigate().GoToUrl(new Uri(Server.PayTester.ServerUri, "Account/Login"));
         }
 
         public void GoToCreateInvoicePage()

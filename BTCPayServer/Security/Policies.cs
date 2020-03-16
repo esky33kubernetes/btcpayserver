@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 
 namespace BTCPayServer.Security
 {
@@ -11,9 +7,12 @@ namespace BTCPayServer.Security
         public static AuthorizationOptions AddBTCPayPolicies(this AuthorizationOptions options)
         {
             options.AddPolicy(CanModifyStoreSettings.Key);
+            options.AddPolicy(CanListStoreSettings.Key);
             options.AddPolicy(CanCreateInvoice.Key);
             options.AddPolicy(CanGetRates.Key);
             options.AddPolicy(CanModifyServerSettings.Key);
+            options.AddPolicy(CanModifyServerSettings.Key);
+            options.AddPolicy(CanModifyProfile.Key);
             return options;
         }
 
@@ -26,9 +25,17 @@ namespace BTCPayServer.Security
         {
             public const string Key = "btcpay.store.canmodifyserversettings";
         }
+        public class CanModifyProfile
+        {
+            public const string Key = "btcpay.store.canmodifyprofile";
+        }
         public class CanModifyStoreSettings
         {
             public const string Key = "btcpay.store.canmodifystoresettings";
+        }
+        public class CanListStoreSettings
+        {
+            public const string Key = "btcpay.store.canliststoresettings";
         }
         public class CanCreateInvoice
         {

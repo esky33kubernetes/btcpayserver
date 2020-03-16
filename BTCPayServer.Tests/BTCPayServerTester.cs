@@ -32,7 +32,6 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
-using OpenIddict.Abstractions;
 using Xunit;
 using BTCPayServer.Services;
 using System.Net.Http;
@@ -232,23 +231,13 @@ namespace BTCPayServer.Tests
 
         private async Task WaitSiteIsOperational()
         {
+            _ = HttpClient.GetAsync("/").ConfigureAwait(false);
             using (var cts = new CancellationTokenSource(20_000))
             {
                 var synching = WaitIsFullySynched(cts.Token);
-                var accessingHomepage = WaitCanAccessHomepage(cts.Token);
-                await Task.WhenAll(synching, accessingHomepage).ConfigureAwait(false);
+                await Task.WhenAll(synching).ConfigureAwait(false);
             }
-        }
-
-        private async Task WaitCanAccessHomepage(CancellationToken cancellationToken)
-        {
-            while (true)
-            {
-                var resp = await HttpClient.GetAsync("/", cancellationToken).ConfigureAwait(false);
-                if (resp.StatusCode == HttpStatusCode.OK)
-                    break;
-                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
-            }
+            // Opportunistic call to wake up view compilation in debug mode, we don't need to await.
         }
 
         private async Task WaitIsFullySynched(CancellationToken cancellationToken)
@@ -298,7 +287,7 @@ namespace BTCPayServer.Tests
             if (userId != null)
             {
                 List<Claim> claims = new List<Claim>();
-                claims.Add(new Claim(OpenIddictConstants.Claims.Subject, userId));
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
                 if (isAdmin)
                     claims.Add(new Claim(ClaimTypes.Role, Roles.ServerAdmin));
                 context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), AuthenticationSchemes.Cookie));
