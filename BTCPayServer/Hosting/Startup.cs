@@ -19,7 +19,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using BTCPayServer.Security;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using System.Net;
-using BTCPayServer.Hosting.OpenApi;
 using BTCPayServer.PaymentRequest;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Storage;
@@ -71,6 +70,16 @@ namespace BTCPayServer.Hosting
                 //    StyleSrc = "'self' 'unsafe-inline'",
                 //    ScriptSrc = "'self' 'unsafe-inline'"
                 //});
+            })
+            .ConfigureApiBehaviorOptions(options =>
+            {
+                var builtInFactory = options.InvalidModelStateResponseFactory;
+
+                options.InvalidModelStateResponseFactory = context =>
+                {
+                    context.HttpContext.Response.StatusCode = (int)HttpStatusCode.UnprocessableEntity;
+                    return builtInFactory(context);
+                };
             })
             .AddNewtonsoftJson()
 #if DEBUG
@@ -184,7 +193,6 @@ namespace BTCPayServer.Hosting
             app.UseProviderStorage(options);
             app.UseAuthentication();
             app.UseAuthorization();
-            app.UseBTCPayOpenApi();
             app.UseSession();
 
             app.UseWebSockets();

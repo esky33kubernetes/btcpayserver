@@ -23,6 +23,7 @@ using BTCPayServer.U2F.Models;
 using Newtonsoft.Json;
 using NicolasDorier.RateLimits;
 using BTCPayServer.Data;
+using BTCPayServer.Events;
 using U2F.Core.Exceptions;
 
 namespace BTCPayServer.Controllers
@@ -40,6 +41,7 @@ namespace BTCPayServer.Controllers
         Configuration.BTCPayServerOptions _Options;
         private readonly BTCPayServerEnvironment _btcPayServerEnvironment;
         public U2FService _u2FService;
+        private readonly EventAggregator _eventAggregator;
         ILogger _logger;
 
         public AccountController(
@@ -51,7 +53,8 @@ namespace BTCPayServer.Controllers
             SettingsRepository settingsRepository,
             Configuration.BTCPayServerOptions options,
             BTCPayServerEnvironment btcPayServerEnvironment,
-            U2FService u2FService)
+            U2FService u2FService,
+            EventAggregator eventAggregator)
         {
             this.storeRepository = storeRepository;
             _userManager = userManager;
@@ -62,6 +65,7 @@ namespace BTCPayServer.Controllers
             _Options = options;
             _btcPayServerEnvironment = btcPayServerEnvironment;
             _u2FService = u2FService;
+            _eventAggregator = eventAggregator;
             _logger = Logs.PayServer;
         }
 
@@ -400,6 +404,7 @@ namespace BTCPayServer.Controllers
 
         [HttpGet]
         [AllowAnonymous]
+        [RateLimitsFilter(ZoneLimits.Register, Scope = RateLimitsScope.RemoteAddress)]
         public async Task<IActionResult> Register(string returnUrl = null, bool logon = true, bool useBasicLayout = false)
         {
             if (!CanLoginOrRegister())
@@ -439,7 +444,6 @@ namespace BTCPayServer.Controllers
                 if (result.Succeeded)
                 {
                     var admin = await _userManager.GetUsersInRoleAsync(Roles.ServerAdmin);
-                    Logs.PayServer.LogInformation($"A new user just registered {user.Email} {(admin.Count == 0 ? "(admin)" : "")}");
                     if (admin.Count == 0 || (model.IsAdmin && _Options.AllowAdminRegistration))
                     {
                         await _RoleManager.CreateAsync(new IdentityRole(Roles.ServerAdmin));
@@ -450,17 +454,21 @@ namespace BTCPayServer.Controllers
                         if (_Options.DisableRegistration)
                         {
                             // Once the admin user has been created lock subsequent user registrations (needs to be disabled for unit tests that require multiple users).
+                            Logs.PayServer.LogInformation("First admin created, disabling subscription (disable-registration is set to true)");
                             policies.LockSubscription = true;
                             await _SettingsRepository.UpdateSetting(policies);
                         }
                         RegisteredAdmin = true;
                     }
 
-                    var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-                    var callbackUrl = Url.EmailConfirmationLink(user.Id, code, Request.Scheme);
+                    _eventAggregator.Publish(new UserRegisteredEvent()
+                    {
+                        Request = Request,
+                        User = user,
+                        Admin = RegisteredAdmin
+                    });
                     RegisteredUserId = user.Id;
 
-                    _EmailSenderFactory.GetEmailSender().SendEmailConfirmation(model.Email, callbackUrl);
                     if (!policies.RequiresConfirmedEmail)
                     {
                         if (logon)

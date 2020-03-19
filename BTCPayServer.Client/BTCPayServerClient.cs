@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -22,6 +23,13 @@ namespace BTCPayServer.Client
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
+        public BTCPayServerClient(Uri btcpayHost, HttpClient httpClient = null)
+        {
+            if (btcpayHost == null)
+                throw new ArgumentNullException(nameof(btcpayHost));
+            _btcpayHost = btcpayHost;
+            _httpClient = httpClient ?? new HttpClient();
+        }
         public BTCPayServerClient(Uri btcpayHost, string APIKey, HttpClient httpClient = null)
         {
             _apiKey = APIKey;
@@ -51,7 +59,8 @@ namespace BTCPayServer.Client
             }
 
             var httpRequest = new HttpRequestMessage(method ?? HttpMethod.Get, uriBuilder.Uri);
-            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("token", _apiKey);
+            if (_apiKey != null)
+                httpRequest.Headers.Authorization = new AuthenticationHeaderValue("token", _apiKey);
 
 
             return httpRequest;
@@ -64,7 +73,7 @@ namespace BTCPayServer.Client
             var request = CreateHttpRequest(path, queryPayload, method);
             if (typeof(T).IsPrimitive || !EqualityComparer<T>.Default.Equals(bodyPayload, default(T)))
             {
-                request.Content = new StringContent(JsonSerializer.Serialize(bodyPayload, _serializerOptions));
+                request.Content = new StringContent(JsonSerializer.Serialize(bodyPayload, _serializerOptions), Encoding.UTF8, "application/json");
             }
 
             return request;

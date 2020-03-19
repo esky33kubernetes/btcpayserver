@@ -26,7 +26,6 @@ using System.Threading;
 using BTCPayServer.Services.Wallets;
 using BTCPayServer.Logging;
 using BTCPayServer.HostedServices;
-using BTCPayServer.Hosting.OpenApi;
 using BTCPayServer.PaymentRequest;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
@@ -204,6 +203,7 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<IHostedService, BackgroundJobSchedulerHostedService>();
             services.AddSingleton<IHostedService, AppHubStreamer>();
             services.AddSingleton<IHostedService, AppInventoryUpdaterHostedService>();
+            services.AddSingleton<IHostedService, UserEventHostedService>();
             services.AddSingleton<IHostedService, DynamicDnsHostedService>();
             services.AddSingleton<IHostedService, TorServicesHostedService>();
             services.AddSingleton<IHostedService, PaymentRequestStreamer>();
@@ -256,15 +256,15 @@ namespace BTCPayServer.Hosting
                 if (btcPayEnv.IsDevelopping)
                 {
                     rateLimits.SetZone($"zone={ZoneLimits.Login} rate=1000r/min burst=100 nodelay");
+                    rateLimits.SetZone($"zone={ZoneLimits.Register} rate=1000r/min burst=100 nodelay");
                 }
                 else
                 {
                     rateLimits.SetZone($"zone={ZoneLimits.Login} rate=5r/min burst=3 nodelay");
+                    rateLimits.SetZone($"zone={ZoneLimits.Register} rate=2r/min burst=2 nodelay");
                 }
                 return rateLimits;
             });
-			services.AddBTCPayOpenApi();
-
             services.AddLogging(logBuilder =>
             {
                 var debugLogFile = BTCPayServerOptions.GetDebugLog(configuration);
