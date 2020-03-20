@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Controllers;
-using BTCPayServer.Controllers.RestApi.Users;
 using BTCPayServer.Services;
 using BTCPayServer.Tests.Logging;
 using Microsoft.AspNet.SignalR.Client;
@@ -38,7 +37,7 @@ namespace BTCPayServer.Tests
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 await user.MakeAdmin();
-                var client = await user.CreateClient(Permissions.ServerManagement, Permissions.StoreManagement);
+                var client = await user.CreateClient(Policies.CanModifyServerSettings, Policies.CanModifyStoreSettings);
                 //Get current api key 
                 var apiKeyData = await client.GetCurrentAPIKeyInfo();
                 Assert.NotNull(apiKeyData);
@@ -97,14 +96,14 @@ namespace BTCPayServer.Tests
                 var adminAcc = tester.NewAccount();
                 adminAcc.UserId = admin.Id;
                 adminAcc.IsAdmin = true;
-                var adminClient = await adminAcc.CreateClient(Permissions.ProfileManagement);
+                var adminClient = await adminAcc.CreateClient(Policies.CanModifyProfile);
 
                 // We should be forbidden to create a new user without proper admin permissions
                 await AssertHttpError(403, async () => await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou" }));
                 await AssertHttpError(403, async () => await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou", IsAdministrator = true }));
 
                 // However, should be ok with the server management permissions
-                adminClient = await adminAcc.CreateClient(Permissions.ServerManagement);
+                adminClient = await adminAcc.CreateClient(Policies.CanModifyServerSettings);
                 await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou" });
                 // Even creating new admin should be ok
                 await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "admin4@gmail.com", Password = "afewfoiewiou", IsAdministrator = true });
@@ -112,7 +111,7 @@ namespace BTCPayServer.Tests
                 var user1Acc = tester.NewAccount();
                 user1Acc.UserId = user1.Id;
                 user1Acc.IsAdmin = false;
-                var user1Client = await user1Acc.CreateClient(Permissions.ServerManagement);
+                var user1Client = await user1Acc.CreateClient(Policies.CanModifyServerSettings);
                 // User1 trying to get server management would still fail to create user
                 await AssertHttpError(403, async () => await user1Client.CreateUser(new CreateApplicationUserRequest() { Email = "test8@gmail.com", Password = "afewfoiewiou" }));
 
@@ -141,9 +140,9 @@ namespace BTCPayServer.Tests
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 await user.MakeAdmin();
-                var clientProfile = await user.CreateClient(Permissions.ProfileManagement);
-                var clientServer = await user.CreateClient(Permissions.ServerManagement);
-                var clientInsufficient = await user.CreateClient(Permissions.StoreManagement);
+                var clientProfile = await user.CreateClient(Policies.CanModifyProfile);
+                var clientServer = await user.CreateClient(Policies.CanModifyServerSettings, Policies.CanViewProfile);
+                var clientInsufficient = await user.CreateClient(Policies.CanModifyStoreSettings);
 
 
                 var apiKeyProfileUserData = await clientProfile.GetCurrentUser();
@@ -153,6 +152,7 @@ namespace BTCPayServer.Tests
 
                 await Assert.ThrowsAsync<HttpRequestException>(async () => await clientInsufficient.GetCurrentUser());
                 await clientServer.GetCurrentUser();
+                await clientProfile.GetCurrentUser();
 
                 await Assert.ThrowsAsync<HttpRequestException>(async () => await clientInsufficient.CreateUser(new CreateApplicationUserRequest()
                 {

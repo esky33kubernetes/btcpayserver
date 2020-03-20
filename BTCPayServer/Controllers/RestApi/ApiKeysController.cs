@@ -1,4 +1,6 @@
 using System.Threading.Tasks;
+using System.Linq;
+using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Security;
@@ -8,7 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
-namespace BTCPayServer.Controllers.RestApi.ApiKeys
+namespace BTCPayServer.Controllers.RestApi
 {
     [ApiController]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.ApiKey)]
@@ -43,7 +45,7 @@ namespace BTCPayServer.Controllers.RestApi.ApiKeys
         {
             return new ApiKeyData()
             {
-                Permissions = data.GetPermissions(),
+                Permissions = Permission.ToPermissions(data.Permissions).ToArray(),
                 ApiKey = data.Id,
                 UserId = data.UserId,
                 Label = data.Label
