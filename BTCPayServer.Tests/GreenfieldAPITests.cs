@@ -37,20 +37,16 @@ namespace BTCPayServer.Tests
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 await user.MakeAdmin();
-                var client = await user.CreateClient(Policies.CanModifyServerSettings, Policies.CanModifyStoreSettings);
+                var client = await user.CreateClient(Policies.Unrestricted);
                 //Get current api key 
                 var apiKeyData = await client.GetCurrentAPIKeyInfo();
                 Assert.NotNull(apiKeyData);
                 Assert.Equal(client.APIKey, apiKeyData.ApiKey);
-                Assert.Equal(user.UserId, apiKeyData.UserId);
-                Assert.Equal(2, apiKeyData.Permissions.Length);
+                Assert.Single(apiKeyData.Permissions);
 
                 //revoke current api key
                 await client.RevokeCurrentAPIKeyInfo();
-                await Assert.ThrowsAsync<HttpRequestException>(async () =>
-                {
-                    await client.GetCurrentAPIKeyInfo();
-                });
+                await AssertHttpError(401, async () => await client.GetCurrentAPIKeyInfo());
             }
         }
 
@@ -102,8 +98,8 @@ namespace BTCPayServer.Tests
                 await AssertHttpError(403, async () => await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou" }));
                 await AssertHttpError(403, async () => await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou", IsAdministrator = true }));
 
-                // However, should be ok with the server management permissions
-                adminClient = await adminAcc.CreateClient(Policies.CanModifyServerSettings);
+                // However, should be ok with the unrestricted permissions of an admin
+                adminClient = await adminAcc.CreateClient(Policies.Unrestricted);
                 await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "test4@gmail.com", Password = "afewfoiewiou" });
                 // Even creating new admin should be ok
                 await adminClient.CreateUser(new CreateApplicationUserRequest() { Email = "admin4@gmail.com", Password = "afewfoiewiou", IsAdministrator = true });
@@ -141,7 +137,7 @@ namespace BTCPayServer.Tests
                 user.GrantAccess();
                 await user.MakeAdmin();
                 var clientProfile = await user.CreateClient(Policies.CanModifyProfile);
-                var clientServer = await user.CreateClient(Policies.CanModifyServerSettings, Policies.CanViewProfile);
+                var clientServer = await user.CreateClient(Policies.CanCreateUser, Policies.CanViewProfile);
                 var clientInsufficient = await user.CreateClient(Policies.CanModifyStoreSettings);
 
 
