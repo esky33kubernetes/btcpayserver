@@ -102,6 +102,13 @@ namespace BTCPayServer.Tests
             var schema = JSchema.Parse(await resp.Content.ReadAsStringAsync());
             IList<ValidationError> errors;
             bool valid = swagger.IsValid(schema, out errors);
+            //the schema is not fully compliant to the spec. We ARE allowed to have multiple security schemas. 
+            if (!valid && errors.Count == 1 && errors.Any(error =>
+                    error.Path == "components.securitySchemes.Basic" && error.ErrorType == ErrorType.OneOf))
+            {
+                errors = new List<ValidationError>();
+                valid = true;
+            }
             Assert.Empty(errors);
             Assert.True(valid);
         }
@@ -122,12 +129,15 @@ namespace BTCPayServer.Tests
             var url = match.Groups[1].Value;
             try
             {
-                Assert.Equal(HttpStatusCode.OK, (await httpClient.GetAsync(url)).StatusCode);
+                using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(url));
+                request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+                request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:75.0) Gecko/20100101 Firefox/75.0");
+                Assert.Equal(HttpStatusCode.OK, (await httpClient.SendAsync(request)).StatusCode);
                 Logs.Tester.LogInformation($"OK: {url} ({file})");
             }
-            catch
+            catch(EqualException ex)
             {
-                Logs.Tester.LogInformation($"FAILED: {url} ({file})");
+                Logs.Tester.LogInformation($"FAILED: {url} ({file}) {ex.Actual}");
                 throw;
             }
         }
@@ -2794,7 +2804,7 @@ noninventoryitem:
                 Assert.NotNull(exchangeRates);
                 Assert.NotEmpty(exchangeRates);
                 Assert.NotEmpty(exchangeRates.ByExchange[result.ExpectedName]);
-                if (result.ExpectedName == "bitbank")
+                if (result.ExpectedName == "bitbank" || result.ExpectedName == "bitflyer")
                 {
                     Assert.Contains(exchangeRates.ByExchange[result.ExpectedName],
                         e => e.CurrencyPair == new CurrencyPair("BTC", "JPY") && e.BidAsk.Bid > 100m); // 1BTC will always be more than 100JPY
