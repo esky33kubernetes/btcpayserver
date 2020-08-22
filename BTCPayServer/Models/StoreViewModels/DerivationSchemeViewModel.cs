@@ -1,19 +1,18 @@
-﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using NBitcoin;
 
 namespace BTCPayServer.Models.StoreViewModels
 {
     public class DerivationSchemeViewModel
     {
+
         public DerivationSchemeViewModel()
         {
         }
+
+        [Display(Name = "Derivation scheme")]
         public string DerivationScheme
         {
             get; set;
@@ -34,14 +33,15 @@ namespace BTCPayServer.Models.StoreViewModels
 
         public KeyPath RootKeyPath { get; set; }
 
-        [Display(Name = "Coldcard Wallet File")]
-        public IFormFile ColdcardPublicFile{ get; set; }
+        [Display(Name = "Wallet File")]
+        public IFormFile WalletFile { get; set; }
         public string Config { get; set; }
         public string Source { get; set; }
         public string DerivationSchemeFormat { get; set; }
         public string AccountKey { get; set; }
         public BTCPayNetwork Network { get; set; }
         public bool CanUseHotWallet { get; set; }
+        public bool CanUseRPCImport { get; set; }
 
         public RootedKeyPath GetAccountKeypath()
         {

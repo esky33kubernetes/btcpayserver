@@ -6,11 +6,15 @@
 
 <partial name="_StatusMessage" />
 
+@if (!ViewContext.ModelState.IsValid)
+{
 <div class="row">
     <div class="col-md-8">
         <div asp-validation-summary="All" class="text-danger"></div>
     </div>
 </div>
+}
+
 <div class="row">
     <div class="col-md-8">
         <form method="post">
@@ -19,7 +23,7 @@
                 <div class="form-group">
                     <h5>Scripting</h5>
                     <p>Rate script allows you to express precisely how you want to calculate rates for currency pairs.</p>
-                    <p>We are retrieving the rate of each exchange either directly, via <a href="https://www.coingecko.com/" target="_blank">CoinGecko (free)</a>.</p>
+                    <p>We are retrieving the rate of each exchange either directly, or via <a href="https://www.coingecko.com/" target="_blank">CoinGecko (free)</a>.</p>
                     <div class="accordion" id="accordion-info">
                         <div class="card">
                             <div class="card-header" id="direct-header">
@@ -69,11 +73,11 @@
                                 <tr>
                                     @if (result.Error)
                                     {
-                                        <th class="small"><span class="fa fa-times" style="color:red;"></span> @result.CurrencyPair</th>
+                                        <th class="small"><span class="text-danger fa fa-times"></span> @result.CurrencyPair</th>
                                     }
                                     else
                                     {
-                                        <th class="small"><span class="fa fa-check" style="color:green;"></span> @result.CurrencyPair</th>
+                                        <th class="small"><span class="text-success fa fa-check"></span> @result.CurrencyPair</th>
                                     }
                                     <td class="small">@result.Rule</td>
                                 </tr>

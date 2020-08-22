@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using BTCPayServer.Data;
+using BTCPayServer.Client.Models;
 using BTCPayServer.Services.Invoices;
 using NBitcoin;
 using Newtonsoft.Json;
@@ -20,7 +16,7 @@ namespace BTCPayServer.Payments.Bitcoin
         {
 
         }
-        
+
         public BitcoinLikePaymentData(BitcoinAddress address, IMoney value, OutPoint outpoint, bool rbf)
         {
             Address = address;
@@ -37,9 +33,11 @@ namespace BTCPayServer.Payments.Bitcoin
         public TxOut Output { get; set; }
         public int ConfirmationCount { get; set; }
         public bool RBF { get; set; }
-        public decimal NetworkFee { get; set; }
         public BitcoinAddress Address { get; set; }
         public IMoney Value { get; set; }
+
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public PayjoinInformation PayjoinInformation { get; set; }
 
         [JsonIgnore]
         public Script ScriptPubKey
@@ -49,7 +47,7 @@ namespace BTCPayServer.Payments.Bitcoin
                 return Address?.ScriptPubKey ?? Output.ScriptPubKey;
             }
         }
-        
+
         /// <summary>
         /// This is set to true if the payment was created before CryptoPaymentData existed in BTCPayServer
         /// </summary>
@@ -67,7 +65,7 @@ namespace BTCPayServer.Payments.Bitcoin
 
         public decimal GetValue()
         {
-            return Value?.GetValue(Network as BTCPayNetwork)??Output.Value.ToDecimal(MoneyUnit.BTC);
+            return Value?.GetValue(Network as BTCPayNetwork) ?? Output.Value.ToDecimal(MoneyUnit.BTC);
         }
 
         public bool PaymentCompleted(PaymentEntity entity)
@@ -98,12 +96,20 @@ namespace BTCPayServer.Payments.Bitcoin
 
         public BitcoinAddress GetDestination()
         {
-            return Address?? Output.ScriptPubKey.GetDestinationAddress(((BTCPayNetwork)Network).NBitcoinNetwork);
+            return Address ?? Output.ScriptPubKey.GetDestinationAddress(((BTCPayNetwork)Network).NBitcoinNetwork);
         }
 
         string CryptoPaymentData.GetDestination()
         {
             return GetDestination().ToString();
         }
+    }
+
+
+    public class PayjoinInformation
+    {
+        public uint256 CoinjoinTransactionHash { get; set; }
+        public Money CoinjoinValue { get; set; }
+        public OutPoint[] ContributedOutPoints { get; set; }
     }
 }

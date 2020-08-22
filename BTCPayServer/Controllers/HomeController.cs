@@ -1,24 +1,24 @@
-﻿using System;
+using System;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using BTCPayServer.Models;
-using NBitcoin.Payment;
-using System.Net.Http;
-using Newtonsoft.Json.Linq;
-using NBitcoin;
-using Newtonsoft.Json;
-using BTCPayServer.Services;
-using BTCPayServer.HostedServices;
-using BTCPayServer.Services.Apps;
-using Microsoft.AspNetCore.Identity;
-using BTCPayServer.Data;
-using Microsoft.Extensions.FileProviders;
 using System.IO;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Authorization;
+using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
+using BTCPayServer.Data;
+using BTCPayServer.HostedServices;
+using BTCPayServer.Models;
+using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Security;
+using BTCPayServer.Services.Apps;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
+using NBitcoin;
+using NBitcoin.Payment;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Controllers
 {
@@ -28,9 +28,9 @@ namespace BTCPayServer.Controllers
         private readonly IFileProvider _fileProvider;
 
         public IHttpClientFactory HttpClientFactory { get; }
-        SignInManager<ApplicationUser> SignInManager { get;  }
+        SignInManager<ApplicationUser> SignInManager { get; }
 
-        public HomeController(IHttpClientFactory httpClientFactory, 
+        public HomeController(IHttpClientFactory httpClientFactory,
                               CssThemeManager cachedServerSettings,
                               IWebHostEnvironment webHostEnvironment,
                               SignInManager<ApplicationUser> signInManager)
@@ -45,39 +45,40 @@ namespace BTCPayServer.Controllers
         {
             if (appType.HasValue && !string.IsNullOrEmpty(appId))
             {
+                this.HttpContext.Response.Headers.Remove("Onion-Location");
                 switch (appType.Value)
                 {
                     case AppType.Crowdfund:
-                    {
-                        var serviceProvider = HttpContext.RequestServices;
-                        var controller = (AppsPublicController)serviceProvider.GetService(typeof(AppsPublicController));
-                        controller.Url = Url;
-                        controller.ControllerContext = ControllerContext;
-                        var res = await controller.ViewCrowdfund(appId, null) as ViewResult;
-                        if (res != null)
                         {
-                            res.ViewName = "/Views/AppsPublic/ViewCrowdfund.cshtml";
-                            return res; // return 
-                        }
+                            var serviceProvider = HttpContext.RequestServices;
+                            var controller = (AppsPublicController)serviceProvider.GetService(typeof(AppsPublicController));
+                            controller.Url = Url;
+                            controller.ControllerContext = ControllerContext;
+                            var res = await controller.ViewCrowdfund(appId, null) as ViewResult;
+                            if (res != null)
+                            {
+                                res.ViewName = $"/Views/AppsPublic/ViewCrowdfund.cshtml";
+                                return res; // return 
+                            }
 
-                        break;
-                    }
+                            break;
+                        }
 
                     case AppType.PointOfSale:
-                    {
-                        var serviceProvider = HttpContext.RequestServices;
-                        var controller = (AppsPublicController)serviceProvider.GetService(typeof(AppsPublicController));
-                        controller.Url = Url;
-                        controller.ControllerContext = ControllerContext;
-                        var res = await controller.ViewPointOfSale(appId) as ViewResult;
-                        if (res != null)
                         {
-                            res.ViewName = "/Views/AppsPublic/ViewPointOfSale.cshtml";
-                            return res; // return 
-                        }
+                            var serviceProvider = HttpContext.RequestServices;
+                            var controller = (AppsPublicController)serviceProvider.GetService(typeof(AppsPublicController));
+                            controller.Url = Url;
+                            controller.ControllerContext = ControllerContext;
+                            var res = await controller.ViewPointOfSale(appId) as ViewResult;
+                            if (res != null)
+                            {
+                                res.ViewName = $"/Views/AppsPublic/{res.ViewName}.cshtml";
+                                return res; // return 
+                            }
 
-                        break;
-                    }
+                            break;
+                        }
                 }
             }
             return null;
@@ -93,10 +94,10 @@ namespace BTCPayServer.Controllers
                 item.Domain.Equals(Request.Host.Host, StringComparison.InvariantCultureIgnoreCase));
             if (matchedDomainMapping != null)
             {
-                return await GoToApp(matchedDomainMapping.AppId, matchedDomainMapping.AppType) ?? GoToHome(); 
+                return await GoToApp(matchedDomainMapping.AppId, matchedDomainMapping.AppType) ?? GoToHome();
             }
 
-            return await GoToApp(_cachedServerSettings.RootAppId, _cachedServerSettings.RootAppType) ?? GoToHome(); 
+            return await GoToApp(_cachedServerSettings.RootAppId, _cachedServerSettings.RootAppType) ?? GoToHome();
         }
 
         private IActionResult GoToHome()
@@ -114,12 +115,17 @@ namespace BTCPayServer.Controllers
         }
 
         [Route("swagger/v1/swagger.json")]
+        [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie + "," + AuthenticationSchemes.Greenfield)]
         public async Task<IActionResult> Swagger()
         {
-            var fi = _fileProvider.GetFileInfo("swagger/v1/swagger.template.json");
-            using var stream = fi.CreateReadStream();
-            using var reader = new StreamReader(fi.CreateReadStream());
-            var json = JObject.Parse(await reader.ReadToEndAsync());
+            JObject json = new JObject();
+            var directoryContents = _fileProvider.GetDirectoryContents("swagger/v1");
+            foreach (IFileInfo fi in directoryContents)
+            {
+                await using var stream = fi.CreateReadStream();
+                using var reader = new StreamReader(fi.CreateReadStream());
+                json.Merge(JObject.Parse(await reader.ReadToEndAsync()));
+            }
             var servers = new JArray();
             servers.Add(new JObject(new JProperty("url", HttpContext.Request.GetAbsoluteRoot())));
             json["servers"] = servers;
@@ -127,6 +133,7 @@ namespace BTCPayServer.Controllers
         }
 
         [Route("docs")]
+        [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         public IActionResult SwaggerDocs()
         {
             return View();
@@ -183,6 +190,13 @@ namespace BTCPayServer.Controllers
                 return View(vm);
             }
             return View(vm);
+        }
+
+        [Route("recovery-seed-backup")]
+        [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+        public IActionResult RecoverySeedBackup(RecoverySeedBackupViewModel vm)
+        {
+            return View("RecoverySeedBackup", vm);
         }
 
         public IActionResult Error()

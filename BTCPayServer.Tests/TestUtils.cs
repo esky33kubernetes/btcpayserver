@@ -1,14 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.IO;
-using System.Text;
+using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Xunit.Sdk;
-using System.Linq;
-using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using Xunit.Sdk;
 
 namespace BTCPayServer.Tests
 {
@@ -39,6 +38,12 @@ namespace BTCPayServer.Tests
                 directory = directory.Parent;
             }
             return Path.Combine(directory.FullName, "TestData", relativeFilePath);
+        }
+
+        public static T AssertType<T>(this object obj)
+        {
+            Assert.IsType<T>(obj);
+            return (T)obj;
         }
 
         public static FormFile GetFormFile(string filename, string content)

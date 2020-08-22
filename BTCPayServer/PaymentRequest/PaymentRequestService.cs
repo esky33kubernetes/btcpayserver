@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Models.PaymentRequestViewModels;
 using BTCPayServer.Payments;
-using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.PaymentRequests;
@@ -48,16 +45,17 @@ namespace BTCPayServer.PaymentRequest
             if (blob.ExpiryDate.HasValue)
             {
                 if (blob.ExpiryDate.Value <= DateTimeOffset.UtcNow)
-                    currentStatus = PaymentRequestData.PaymentRequestStatus.Expired;
+                    currentStatus = Client.Models.PaymentRequestData.PaymentRequestStatus.Expired;
             }
-            else if (pr.Status == PaymentRequestData.PaymentRequestStatus.Pending)
+
+            if (currentStatus == Client.Models.PaymentRequestData.PaymentRequestStatus.Pending)
             {
                 var rateRules = pr.StoreData.GetStoreBlob().GetRateRules(_BtcPayNetworkProvider);
                 var invoices = await _PaymentRequestRepository.GetInvoicesForPaymentRequest(pr.Id);
                 var contributions = _AppService.GetContributionsByPaymentMethodId(blob.Currency, invoices, true);
                 if (contributions.TotalCurrency >= blob.Amount)
                 {
-                    currentStatus = PaymentRequestData.PaymentRequestStatus.Completed;
+                    currentStatus = Client.Models.PaymentRequestData.PaymentRequestStatus.Completed;
                 }
             }
 
@@ -77,16 +75,17 @@ namespace BTCPayServer.PaymentRequest
             }
 
             var blob = pr.GetBlob();
-            var rateRules = pr.StoreData.GetStoreBlob().GetRateRules(_BtcPayNetworkProvider);
 
             var invoices = await _PaymentRequestRepository.GetInvoicesForPaymentRequest(id);
 
             var paymentStats = _AppService.GetContributionsByPaymentMethodId(blob.Currency, invoices, true);
             var amountDue = blob.Amount - paymentStats.TotalCurrency;
-            var pendingInvoice = invoices.SingleOrDefault(entity => entity.Status == InvoiceStatus.New);
+            var pendingInvoice = invoices.OrderByDescending(entity => entity.InvoiceTime)
+                .FirstOrDefault(entity => entity.Status == InvoiceStatus.New);
 
             return new ViewPaymentRequestViewModel(pr)
             {
+                Archived = pr.Archived,
                 AmountFormatted = _currencies.FormatCurrency(blob.Amount, blob.Currency),
                 AmountCollected = paymentStats.TotalCurrency,
                 AmountCollectedFormatted = _currencies.FormatCurrency(paymentStats.TotalCurrency, blob.Currency),
@@ -95,7 +94,7 @@ namespace BTCPayServer.PaymentRequest
                 CurrencyData = _currencies.GetCurrencyData(blob.Currency, true),
                 LastUpdated = DateTime.Now,
                 AnyPendingInvoice = pendingInvoice != null,
-                PendingInvoiceHasPayments = pendingInvoice != null && 
+                PendingInvoiceHasPayments = pendingInvoice != null &&
                                             pendingInvoice.ExceptionStatus != InvoiceExceptionStatus.None,
                 Invoices = invoices.Select(entity => new ViewPaymentRequestViewModel.PaymentRequestInvoice()
                 {
@@ -105,10 +104,16 @@ namespace BTCPayServer.PaymentRequest
                     Currency = entity.ProductInformation.Currency,
                     ExpiryDate = entity.ExpirationTime.DateTime,
                     Status = entity.GetInvoiceState().ToString(),
-                    Payments = entity.GetPayments().Select(paymentEntity =>
+                    Payments = entity
+                        .GetPayments()
+                        .Select(paymentEntity =>
                     {
                         var paymentData = paymentEntity.GetCryptoPaymentData();
                         var paymentMethodId = paymentEntity.GetPaymentMethodId();
+                        if (paymentData is null || paymentMethodId is null)
+                        {
+                            return null;
+                        }
 
                         string txId = paymentData.GetPaymentId();
                         string link = GetTransactionLink(paymentMethodId, txId);
@@ -119,7 +124,9 @@ namespace BTCPayServer.PaymentRequest
                             Link = link,
                             Id = txId
                         };
-                    }).ToList()
+                    })
+                        .Where(payment => payment != null)
+                        .ToList()
                 }).ToList()
             };
         }

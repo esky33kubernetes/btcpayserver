@@ -1,16 +1,10 @@
-﻿using System;
-using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
+using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Services.Stores;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Primitives;
-using BTCPayServer.Client;
 
 namespace BTCPayServer.Security
 {
@@ -51,7 +45,7 @@ namespace BTCPayServer.Security
                 return;
 
 
-            var store = await _storeRepository.FindStore((string)storeId, userid);
+            var store = await _storeRepository.FindStore(storeId, userid);
             if (store == null)
                 return;
             bool success = false;

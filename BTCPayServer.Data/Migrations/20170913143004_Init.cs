@@ -1,8 +1,7 @@
-﻿using BTCPayServer.Data;
+using System;
+using BTCPayServer.Data;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using System;
-using System.Collections.Generic;
 
 namespace BTCPayServer.Migrations
 {
@@ -114,8 +113,8 @@ namespace BTCPayServer.Migrations
                 name: "AspNetUserLogins",
                 columns: table => new
                 {
-                    LoginProvider = table.Column<string>(nullable: false),
-                    ProviderKey = table.Column<string>(nullable: false),
+                    LoginProvider = table.Column<string>(nullable: false, maxLength: 255),
+                    ProviderKey = table.Column<string>(nullable: false, maxLength: 255),
                     ProviderDisplayName = table.Column<string>(nullable: true),
                     UserId = table.Column<string>(nullable: false, maxLength: maxLength)
                 },
@@ -159,8 +158,8 @@ namespace BTCPayServer.Migrations
                 columns: table => new
                 {
                     UserId = table.Column<string>(nullable: false, maxLength: maxLength),
-                    LoginProvider = table.Column<string>(nullable: false),
-                    Name = table.Column<string>(nullable: false),
+                    LoginProvider = table.Column<string>(nullable: false, maxLength: 64),
+                    Name = table.Column<string>(nullable: false, maxLength: 64),
                     Value = table.Column<string>(nullable: true)
                 },
                 constraints: table =>

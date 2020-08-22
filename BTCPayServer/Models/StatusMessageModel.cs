@@ -1,6 +1,4 @@
 using System;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Models
 {
@@ -9,7 +7,6 @@ namespace BTCPayServer.Models
         public StatusMessageModel()
         {
         }
-
         public string Message { get; set; }
         public string Html { get; set; }
         public StatusSeverity Severity { get; set; }

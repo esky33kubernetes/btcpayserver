@@ -1,27 +1,26 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Hosting;
-
-using Microsoft.AspNetCore.Builder;
 using System;
-using Microsoft.Extensions.DependencyInjection;
-using BTCPayServer.Filters;
-using BTCPayServer.Models;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.HttpOverrides;
-using BTCPayServer.Data;
-using Microsoft.Extensions.Logging;
-using BTCPayServer.Logging;
-using Microsoft.Extensions.Configuration;
-using BTCPayServer.Configuration;
 using System.IO;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using BTCPayServer.Security;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using System.Net;
+using BTCPayServer.Configuration;
+using BTCPayServer.Data;
+using BTCPayServer.Filters;
+using BTCPayServer.Logging;
 using BTCPayServer.PaymentRequest;
+using BTCPayServer.Security;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Storage;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 
 namespace BTCPayServer.Hosting
 {
@@ -33,7 +32,8 @@ namespace BTCPayServer.Hosting
             _Env = env;
             LoggerFactory = loggerFactory;
         }
-        IWebHostEnvironment _Env;
+
+        readonly IWebHostEnvironment _Env;
         public IConfiguration Configuration
         {
             get; set;
@@ -81,8 +81,14 @@ namespace BTCPayServer.Hosting
                     return builtInFactory(context);
                 };
             })
+            .AddRazorOptions(o =>
+            {
+                // /Components/{View Component Name}/{View Name}.cshtml
+                o.ViewLocationFormats.Add("/{0}.cshtml");
+                o.PageViewLocationFormats.Add("/{0}.cshtml");
+            })
             .AddNewtonsoftJson()
-#if DEBUG
+#if RAZOR_RUNTIME_COMPILE
             .AddRazorRuntimeCompilation()
 #endif
             .AddControllersAsServices();
@@ -189,7 +195,17 @@ namespace BTCPayServer.Hosting
             app.UseRouting();
             app.UseCors();
 
-            app.UseStaticFiles();
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                OnPrepareResponse = ctx =>
+                {
+                    // Cache static assets for one year, set asp-append-version="true" on references to update on change.
+                    // https://andrewlock.net/adding-cache-control-headers-to-static-files-in-asp-net-core/
+                    const int durationInSeconds = 60 * 60 * 24 * 365;
+                    ctx.Context.Response.Headers[HeaderNames.CacheControl] = "public,max-age=" + durationInSeconds;
+                }
+            });
+
             app.UseProviderStorage(options);
             app.UseAuthentication();
             app.UseAuthorization();

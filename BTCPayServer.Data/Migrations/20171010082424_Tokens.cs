@@ -1,8 +1,7 @@
-﻿using BTCPayServer.Data;
+using System;
+using BTCPayServer.Data;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using System;
-using System.Collections.Generic;
 
 namespace BTCPayServer.Migrations
 {
@@ -22,7 +21,7 @@ namespace BTCPayServer.Migrations
                     Label = table.Column<string>(nullable: true),
                     Name = table.Column<string>(nullable: true),
                     PairingTime = table.Column<DateTimeOffset>(nullable: false),
-                    SIN = table.Column<string>(nullable: true),
+                    SIN = table.Column<string>(nullable: true, maxLength: maxLength),
                     StoreDataId = table.Column<string>(nullable: true, maxLength: maxLength)
                 },
                 constraints: table =>

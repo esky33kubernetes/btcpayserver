@@ -1,3 +1,4 @@
+#if ALTCOINS
 using BTCPayServer.Payments;
 
 namespace BTCPayServer.Services.Altcoins.Monero.Payments
@@ -19,10 +20,11 @@ namespace BTCPayServer.Services.Altcoins.Monero.Payments
             return NextNetworkFee;
         }
 
-        public decimal GetFeeRate() {
+        public decimal GetFeeRate()
+        {
             return 0.0m;
         }
-        
+
         public void SetPaymentDestination(string newPaymentDestination)
         {
             DepositAddress = newPaymentDestination;
@@ -33,3 +35,4 @@ namespace BTCPayServer.Services.Altcoins.Monero.Payments
         public decimal NextNetworkFee { get; set; }
     }
 }
+#endif

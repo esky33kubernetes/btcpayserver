@@ -1,9 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System;
+#if ALTCOINS
 using BTCPayServer.Services.Altcoins.Monero.Payments;
+#endif
 using BTCPayServer.Services.Invoices;
+using NBitcoin;
 using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Payments
@@ -34,9 +34,11 @@ namespace BTCPayServer.Payments
                 case "offchain":
                     type = PaymentTypes.LightningLike;
                     break;
+#if ALTCOINS
                 case "monerolike":
                     type = MoneroPaymentType.Instance;
                     break;
+#endif
                 default:
                     type = null;
                     return false;
@@ -66,6 +68,8 @@ namespace BTCPayServer.Payments
         public abstract string SerializePaymentMethodDetails(BTCPayNetworkBase network, IPaymentMethodDetails details);
         public abstract ISupportedPaymentMethod DeserializeSupportedPaymentMethod(BTCPayNetworkBase network, JToken value);
         public abstract string GetTransactionLink(BTCPayNetworkBase network, string txId);
+        public abstract string GetPaymentLink(BTCPayNetworkBase network, IPaymentMethodDetails paymentMethodDetails,
+            Money cryptoInfoDue, string serverUri);
         public abstract string InvoiceViewPaymentPartialName { get; }
     }
 }

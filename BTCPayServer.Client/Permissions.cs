@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -6,13 +6,21 @@ namespace BTCPayServer.Client
 {
     public class Policies
     {
+        public const string CanCreateLightningInvoiceInternalNode = "btcpay.server.cancreatelightninginvoiceinternalnode";
+        public const string CanCreateLightningInvoiceInStore = "btcpay.store.cancreatelightninginvoice";
+        public const string CanUseInternalLightningNode = "btcpay.server.canuseinternallightningnode";
+        public const string CanUseLightningNodeInStore = "btcpay.store.canuselightningnode";
         public const string CanModifyServerSettings = "btcpay.server.canmodifyserversettings";
         public const string CanModifyStoreSettings = "btcpay.store.canmodifystoresettings";
+        public const string CanModifyStoreSettingsUnscoped = "btcpay.store.canmodifystoresettings:";
         public const string CanViewStoreSettings = "btcpay.store.canviewstoresettings";
         public const string CanCreateInvoice = "btcpay.store.cancreateinvoice";
+        public const string CanViewPaymentRequests = "btcpay.store.canviewpaymentrequests";
+        public const string CanModifyPaymentRequests = "btcpay.store.canmodifypaymentrequests";
         public const string CanModifyProfile = "btcpay.user.canmodifyprofile";
         public const string CanViewProfile = "btcpay.user.canviewprofile";
         public const string CanCreateUser = "btcpay.server.cancreateuser";
+        public const string CanManagePullPayments = "btcpay.store.canmanagepullpayments";
         public const string Unrestricted = "unrestricted";
         public static IEnumerable<string> AllPolicies
         {
@@ -22,10 +30,17 @@ namespace BTCPayServer.Client
                 yield return CanModifyServerSettings;
                 yield return CanModifyStoreSettings;
                 yield return CanViewStoreSettings;
+                yield return CanViewPaymentRequests;
+                yield return CanModifyPaymentRequests;
                 yield return CanModifyProfile;
                 yield return CanViewProfile;
                 yield return CanCreateUser;
                 yield return Unrestricted;
+                yield return CanUseInternalLightningNode;
+                yield return CanCreateLightningInvoiceInternalNode;
+                yield return CanUseLightningNodeInStore;
+                yield return CanCreateLightningInvoiceInStore;
+                yield return CanManagePullPayments;
             }
         }
         public static bool IsValidPolicy(string policy)
@@ -37,17 +52,25 @@ namespace BTCPayServer.Client
         {
             return policy.StartsWith("btcpay.store", StringComparison.OrdinalIgnoreCase);
         }
+        public static bool IsStoreModifyPolicy(string policy)
+        {
+            return policy.StartsWith("btcpay.store.canmodify", StringComparison.OrdinalIgnoreCase);
+        }
+        public static bool IsServerPolicy(string policy)
+        {
+            return policy.StartsWith("btcpay.server", StringComparison.OrdinalIgnoreCase);
+        }
     }
     public class Permission
     {
-        public static Permission Create(string policy, string storeId = null)
+        public static Permission Create(string policy, string scope = null)
         {
-            if (TryCreatePermission(policy, storeId, out var r))
+            if (TryCreatePermission(policy, scope, out var r))
                 return r;
             throw new ArgumentException("Invalid Permission");
         }
 
-        public static bool TryCreatePermission(string policy, string storeId, out Permission permission)
+        public static bool TryCreatePermission(string policy, string scope, out Permission permission)
         {
             permission = null;
             if (policy == null)
@@ -55,9 +78,9 @@ namespace BTCPayServer.Client
             policy = policy.Trim().ToLowerInvariant();
             if (!Policies.IsValidPolicy(policy))
                 return false;
-            if (storeId != null && !Policies.IsStorePolicy(policy))
+            if (scope != null && !Policies.IsStorePolicy(policy))
                 return false;
-            permission = new Permission(policy, storeId);
+            permission = new Permission(policy, scope);
             return true;
         }
 
@@ -91,12 +114,10 @@ namespace BTCPayServer.Client
             }
         }
 
-        
-
-        internal Permission(string policy, string storeId)
+        internal Permission(string policy, string scope)
         {
             Policy = policy;
-            StoreId = storeId;
+            Scope = scope;
         }
 
         public bool Contains(Permission subpermission)
@@ -110,7 +131,7 @@ namespace BTCPayServer.Client
             }
             if (!Policies.IsStorePolicy(subpermission.Policy))
                 return true;
-            return StoreId == null || subpermission.StoreId == this.StoreId;
+            return Scope == null || subpermission.Scope == this.Scope;
         }
 
         public static IEnumerable<Permission> ToPermissions(string[] permissions)
@@ -123,14 +144,6 @@ namespace BTCPayServer.Client
                     yield return pp;
             }
         }
-        public static IEnumerable<Permission> ToPermissions(string permissionsFormatted)
-        {
-            foreach(var part in permissionsFormatted.Split(';', StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (Permission.TryParse(part, out var p))
-                    yield return p;
-            }
-        }
 
         private bool ContainsPolicy(string subpolicy)
         {
@@ -138,23 +151,30 @@ namespace BTCPayServer.Client
                 return true;
             if (this.Policy == subpolicy)
                 return true;
-            if (subpolicy == Policies.CanViewStoreSettings && this.Policy == Policies.CanModifyStoreSettings)
-                return true;
-            if (subpolicy == Policies.CanCreateInvoice && this.Policy == Policies.CanModifyStoreSettings)
-                return true;
-            if (subpolicy == Policies.CanViewProfile && this.Policy == Policies.CanModifyProfile)
-                return true;
-            return false;
+            switch (subpolicy)
+            {
+                case Policies.CanViewStoreSettings when this.Policy == Policies.CanModifyStoreSettings:
+                case Policies.CanCreateInvoice when this.Policy == Policies.CanModifyStoreSettings:
+                case Policies.CanViewProfile when this.Policy == Policies.CanModifyProfile:
+                case Policies.CanModifyPaymentRequests when this.Policy == Policies.CanModifyStoreSettings:
+                case Policies.CanViewPaymentRequests when this.Policy == Policies.CanModifyStoreSettings:
+                case Policies.CanViewPaymentRequests when this.Policy == Policies.CanViewStoreSettings:
+                case Policies.CanCreateLightningInvoiceInternalNode when this.Policy == Policies.CanUseInternalLightningNode:
+                case Policies.CanCreateLightningInvoiceInStore when this.Policy == Policies.CanUseLightningNodeInStore:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
-        public string StoreId { get; }
+        public string Scope { get; }
         public string Policy { get; }
 
         public override string ToString()
         {
-            if (StoreId != null)
+            if (Scope != null)
             {
-                return $"{Policy}:{StoreId}";
+                return $"{Policy}:{Scope}";
             }
             return Policy;
         }

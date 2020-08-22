@@ -1,22 +1,5 @@
-﻿using BTCPayServer.Configuration;
-using Microsoft.Extensions.Logging;
-using BTCPayServer.HostedServices;
-using BTCPayServer.Models;
-using BTCPayServer.Models.ServerViewModels;
-using BTCPayServer.Payments.Lightning;
-using BTCPayServer.Services;
-using BTCPayServer.Services.Mails;
-using BTCPayServer.Services.Rates;
-using BTCPayServer.Services.Stores;
-using BTCPayServer.Validation;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
-using NBitcoin;
-using NBitcoin.DataEncoders;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -24,18 +7,30 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Mail;
 using System.Threading.Tasks;
-using Renci.SshNet;
+using BTCPayServer.Configuration;
+using BTCPayServer.Data;
+using BTCPayServer.Events;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Logging;
-using BTCPayServer.Lightning;
-using System.Runtime.CompilerServices;
+using BTCPayServer.Models;
+using BTCPayServer.Models.AccountViewModels;
+using BTCPayServer.Models.ServerViewModels;
+using BTCPayServer.Services;
+using BTCPayServer.Services.Apps;
+using BTCPayServer.Services.Mails;
+using BTCPayServer.Services.Stores;
 using BTCPayServer.Storage.Models;
 using BTCPayServer.Storage.Services;
 using BTCPayServer.Storage.Services.Providers;
-using BTCPayServer.Services.Apps;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using BTCPayServer.Data;
 using Microsoft.EntityFrameworkCore;
-using BTCPayServer.Client;
+using Microsoft.Extensions.Logging;
+using NBitcoin;
+using NBitcoin.DataEncoders;
+using Renci.SshNet;
 
 namespace BTCPayServer.Controllers
 {
@@ -43,13 +38,13 @@ namespace BTCPayServer.Controllers
                AuthenticationSchemes = BTCPayServer.Security.AuthenticationSchemes.Cookie)]
     public partial class ServerController : Controller
     {
-        private UserManager<ApplicationUser> _UserManager;
-        SettingsRepository _SettingsRepository;
+        private readonly UserManager<ApplicationUser> _UserManager;
+        readonly SettingsRepository _SettingsRepository;
         private readonly NBXplorerDashboard _dashBoard;
-        private StoreRepository _StoreRepository;
-        LightningConfigurationProvider _LnConfigProvider;
+        private readonly StoreRepository _StoreRepository;
+        readonly LightningConfigurationProvider _LnConfigProvider;
         private readonly TorServices _torServices;
-        private BTCPayServerOptions _Options;
+        private readonly BTCPayServerOptions _Options;
         private readonly AppService _AppService;
         private readonly CheckConfigurationHostedService _sshState;
         private readonly StoredFileRepository _StoredFileRepository;
@@ -122,7 +117,7 @@ namespace BTCPayServer.Controllers
             MaintenanceViewModel vm = new MaintenanceViewModel();
             vm.CanUseSSH = _sshState.CanUseSSH;
             if (!vm.CanUseSSH)
-                TempData[WellKnownTempData.ErrorMessage] = "Maintenance feature requires access to SSH properly configured in BTCPayServer configuration";
+                TempData[WellKnownTempData.ErrorMessage] = "Maintenance feature requires access to SSH properly configured in BTCPayServer configuration.";
             vm.DNSDomain = this.Request.Host.Host;
             if (IPAddress.TryParse(vm.DNSDomain, out var unused))
                 vm.DNSDomain = null;
@@ -290,14 +285,15 @@ namespace BTCPayServer.Controllers
                 return NotFound();
 
             var admins = await _UserManager.GetUsersInRoleAsync(Roles.ServerAdmin);
-            if (!viewModel.IsAdmin && admins.Count == 1)
+            var roles = await _UserManager.GetRolesAsync(user);
+            var wasAdmin = IsAdmin(roles);
+            if (!viewModel.IsAdmin && admins.Count == 1 && wasAdmin)
             {
                 TempData[WellKnownTempData.ErrorMessage] = "This is the only Admin, so their role can't be removed until another Admin is added.";
                 return View(viewModel); // return
             }
 
-            var roles = await _UserManager.GetRolesAsync(user);
-            if (viewModel.IsAdmin != IsAdmin(roles))
+            if (viewModel.IsAdmin != wasAdmin)
             {
                 if (viewModel.IsAdmin)
                     await _UserManager.AddToRoleAsync(user, Roles.ServerAdmin);
@@ -310,6 +306,40 @@ namespace BTCPayServer.Controllers
             return RedirectToAction(nameof(User), new { userId = userId });
         }
 
+        [Route("server/users/new")]
+        [HttpGet]
+        public IActionResult CreateUser()
+        {
+            ViewData["AllowIsAdmin"] = _Options.AllowAdminRegistration;
+
+            return View();
+        }
+
+        [Route("server/users/new")]
+        [HttpPost]
+        public async Task<IActionResult> CreateUser(RegisterViewModel model)
+        {
+            ViewData["AllowIsAdmin"] = _Options.AllowAdminRegistration;
+
+            if (ModelState.IsValid)
+            {
+                var user = new ApplicationUser { UserName = model.Email, Email = model.Email, RequiresEmailConfirmation = false };
+                var result = await _UserManager.CreateAsync(user, model.Password);
+                if (result.Succeeded)
+                {
+                    TempData[WellKnownTempData.SuccessMessage] = "Account created";
+                    return RedirectToAction(nameof(ListUsers));
+                }
+
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError(string.Empty, error.Description);
+                }
+            }
+
+            // If we got this far, something failed, redisplay form
+            return View(model);
+        }
 
         [Route("server/users/{userId}/delete")]
         public async Task<IActionResult> DeleteUser(string userId)
@@ -348,6 +378,14 @@ namespace BTCPayServer.Controllers
             var user = userId == null ? null : await _UserManager.FindByIdAsync(userId);
             if (user == null)
                 return NotFound();
+
+            var files = await _StoredFileRepository.GetFiles(new StoredFileRepository.FilesQuery()
+            {
+                UserIds = new[] { userId },
+            });
+
+            await Task.WhenAll(files.Select(file => _FileService.RemoveFile(file.Id, userId)));
+
             await _UserManager.DeleteAsync(user);
             await _StoreRepository.CleanUnreachableStores();
             TempData[WellKnownTempData.SuccessMessage] = "User deleted";
@@ -530,22 +568,21 @@ namespace BTCPayServer.Controllers
         }
 
 
-        
+
         [Route("server/services/{serviceName}/{cryptoCode?}")]
         public async Task<IActionResult> Service(string serviceName, string cryptoCode, bool showQR = false, uint? nonce = null)
         {
-            if (!string.IsNullOrEmpty(cryptoCode) && !_dashBoard.IsFullySynched(cryptoCode, out _))
+            var service = GetService(serviceName, cryptoCode);
+            if (service == null)
+                return NotFound();
+            if (!string.IsNullOrEmpty(cryptoCode) && !_dashBoard.IsFullySynched(cryptoCode, out _) && service.Type != ExternalServiceTypes.RPC)
             {
                 TempData[WellKnownTempData.ErrorMessage] = $"{cryptoCode} is not fully synched";
                 return RedirectToAction(nameof(Services));
             }
-            var service = GetService(serviceName, cryptoCode);
-            if (service == null)
-                return NotFound();
-
             try
             {
-                
+
                 if (service.Type == ExternalServiceTypes.P2P)
                 {
                     return View("P2PService", new LightningWalletServices()
@@ -585,6 +622,7 @@ namespace BTCPayServer.Controllers
                     case ExternalServiceTypes.Charge:
                         return LightningChargeServices(service, connectionString, showQR);
                     case ExternalServiceTypes.RTL:
+                    case ExternalServiceTypes.ThunderHub:
                     case ExternalServiceTypes.Spark:
                         if (connectionString.AccessKey == null)
                         {
@@ -594,7 +632,10 @@ namespace BTCPayServer.Controllers
                         LightningWalletServices vm = new LightningWalletServices();
                         vm.ShowQR = showQR;
                         vm.WalletName = service.DisplayName;
-                        vm.ServiceLink = $"{connectionString.Server}?access-key={connectionString.AccessKey}";
+                        string tokenParam = "access-key";
+                        if (service.Type == ExternalServiceTypes.ThunderHub)
+                            tokenParam = "token";
+                        vm.ServiceLink = $"{connectionString.Server}?{tokenParam}={connectionString.AccessKey}";
                         return View("LightningWalletServices", vm);
                     case ExternalServiceTypes.CLightningRest:
                         return LndServices(service, connectionString, nonce, "CLightningRestServices");
@@ -771,7 +812,7 @@ namespace BTCPayServer.Controllers
             else if (service.Type == ExternalServiceTypes.LNDRest || service.Type == ExternalServiceTypes.CLightningRest)
             {
                 var restconf = new LNDRestConfiguration();
-                restconf.Type = service.Type  == ExternalServiceTypes.LNDRest? "lnd-rest": "clightning-rest";
+                restconf.Type = service.Type == ExternalServiceTypes.LNDRest ? "lnd-rest" : "clightning-rest";
                 restconf.Uri = connectionString.Server.AbsoluteUri;
                 confs.Configurations.Add(restconf);
             }

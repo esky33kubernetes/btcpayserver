@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using BTCPayServer.Payments;
-using BTCPayServer.Payments.Bitcoin;
-using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
+using CsvHelper.Configuration;
 using Newtonsoft.Json;
 
 namespace BTCPayServer.Services.Invoices.Export
@@ -46,10 +44,13 @@ namespace BTCPayServer.Services.Invoices.Export
 
         private string processCsv(List<ExportInvoiceHolder> invoices)
         {
-            var serializer = new CsvSerializer<ExportInvoiceHolder>();
-            var csv = serializer.Serialize(invoices);
-
-            return csv;
+            using StringWriter writer = new StringWriter();
+            using var csvWriter = new CsvHelper.CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture), true);
+            csvWriter.WriteHeader<ExportInvoiceHolder>();
+            csvWriter.NextRecord();
+            csvWriter.WriteRecords(invoices);
+            csvWriter.Flush();
+            return writer.ToString();
         }
 
         private IEnumerable<ExportInvoiceHolder> convertFromDb(InvoiceEntity invoice)
@@ -69,7 +70,7 @@ namespace BTCPayServer.Services.Invoices.Export
 
                 var pmethod = invoice.GetPaymentMethod(payment.GetPaymentMethodId());
                 var paidAfterNetworkFees = pdata.GetValue() - payment.NetworkFee;
-                invoiceDue -=  paidAfterNetworkFees * pmethod.Rate;
+                invoiceDue -= paidAfterNetworkFees * pmethod.Rate;
 
                 var target = new ExportInvoiceHolder
                 {

@@ -1,12 +1,10 @@
-﻿using System;
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NBitcoin;
 using NBXplorer;
 using NBXplorer.Models;
-using Newtonsoft.Json;
 
 namespace BTCPayServer
 {
@@ -33,7 +31,7 @@ namespace BTCPayServer
             }
         }
 
-        static Dictionary<NetworkType, BTCPayDefaultSettings> _Settings;
+        static readonly Dictionary<NetworkType, BTCPayDefaultSettings> _Settings;
 
         public static BTCPayDefaultSettings GetDefaultSettings(NetworkType chainType)
         {
@@ -45,22 +43,25 @@ namespace BTCPayServer
         public int DefaultPort { get; set; }
     }
 
-    public class BTCPayNetwork:BTCPayNetworkBase
+    public class BTCPayNetwork : BTCPayNetworkBase
     {
-        public Network NBitcoinNetwork { get { return  NBXplorerNetwork?.NBitcoinNetwork; } }
+        public Network NBitcoinNetwork { get { return NBXplorerNetwork?.NBitcoinNetwork; } }
         public NBXplorer.NBXplorerNetwork NBXplorerNetwork { get; set; }
         public bool SupportRBF { get; internal set; }
         public string LightningImagePath { get; set; }
         public BTCPayDefaultSettings DefaultSettings { get; set; }
         public KeyPath CoinType { get; internal set; }
-        
+
         public Dictionary<uint, DerivationType> ElectrumMapping = new Dictionary<uint, DerivationType>();
 
         public virtual bool WalletSupported { get; set; } = true;
-        public virtual bool ReadonlyWallet{ get; set; } = false;
-        
+        public virtual bool ReadonlyWallet { get; set; } = false;
+
         public int MaxTrackedConfirmation { get; internal set; } = 6;
         public string UriScheme { get; internal set; }
+        public bool SupportPayJoin { get; set; } = false;
+        public bool SupportLightning { get; set; } = true;
+
         public KeyPath GetRootKeyPath(DerivationType type)
         {
             KeyPath baseKey;
@@ -116,6 +117,11 @@ namespace BTCPayServer
         public virtual string GenerateBIP21(string cryptoInfoAddress, Money cryptoInfoDue)
         {
             return $"{UriScheme}:{cryptoInfoAddress}?amount={cryptoInfoDue.ToString(false, true)}";
+        }
+
+        public virtual GetTransactionsResponse FilterValidTransactions(GetTransactionsResponse response)
+        {
+            return response;
         }
     }
 

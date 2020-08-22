@@ -23,7 +23,7 @@
         <div class="row button-row">
             <div class="col-lg-12">
                 <a asp-action="CreateApp" class="btn btn-primary" role="button" id="CreateNewApp"><span class="fa fa-plus"></span> Create a new app</a>
-                <a href="https://docs.btcpayserver.org/features/apps" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
+                <a href="https://docs.btcpayserver.org/Apps/" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
             </div>
         </div>
         <div class="row">
@@ -31,9 +31,48 @@
                 <table class="table table-sm table-responsive-md">
                     <thead>
                         <tr>
-                            <th>Store</th>
-                            <th>Name</th>
-                            <th>App type</th>
+                            <th>
+                                <a
+                                    asp-action="ListApps"
+                                    asp-route-sortOrder="@(ViewData["StoreNameSortOrder"] ?? "asc")"
+                                    asp-route-sortOrderColumn="StoreName"
+                                    class="text-nowrap"
+                                    title="@((string)ViewData["StoreNameSortOrder"] == "desc" ? "Sort by descending..." : "Sort by ascending...")"
+                                >
+                                    Store  @if (ViewData["StoreNameSortOrder"] != null)
+                                    {
+                                        <span class="fa @((string)ViewData["StoreNameSortOrder"] == "asc" ? "fa-arrow-down": "fa-arrow-up")" />
+                                    }
+                                </a>
+                            </th>
+                            <th>
+                                <a
+                                    asp-action="ListApps"
+                                    asp-route-sortOrder="@(ViewData["AppNameSortOrder"] ?? "asc")"
+                                    asp-route-sortOrderColumn="AppName"
+                                    class="text-nowrap"
+                                    title="@((string)ViewData["AppNameSortOrder"] == "desc" ? "Sort by descending..." : "Sort by ascending...")"
+                                >
+                                    Name  @if (ViewData["AppNameSortOrder"] != null)
+                                    {
+                                        <span class="fa @((string)ViewData["AppNameSortOrder"] == "asc" ? "fa-arrow-down": "fa-arrow-up")" />
+                                    }
+                                </a>
+                            </th>
+                            <th>
+                                <a
+                                    asp-action="ListApps"
+                                    asp-route-sortOrder="@(ViewData["AppTypeSortOrder"] ?? "asc")"
+                                    asp-route-sortOrderColumn="AppType"
+                                    class="text-nowrap"
+                                    title="@((string)ViewData["AppTypeSortOrder"] == "desc" ? "Sort by descending..." : "Sort by ascending...")"
+                                >
+                                    App Type  @if (ViewData["AppTypeSortOrder"] != null)
+                                    {
+                                        <span class="fa @((string)ViewData["AppTypeSortOrder"] == "asc" ? "fa-arrow-down": "fa-arrow-up")" />
+                                    }
+                                </a>
+                            </th>
                             <th style="text-align:right">Actions</th>
                         </tr>
                     </thead>

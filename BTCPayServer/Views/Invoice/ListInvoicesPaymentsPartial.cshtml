@@ -4,7 +4,7 @@
 
 <div class="row">
     <div class="col-md-12 invoice-payments">
-        <h3>Paid summary</h3>
+        <h3>Invoice Summary</h3>
         <table class="table table-sm table-responsive-md">
             <thead class="thead-inverse">
             <tr>
@@ -47,7 +47,7 @@
     </div>
 </div>
 @{
-    var grouped = invoice.Payments.GroupBy(payment => payment.GetPaymentMethodId().PaymentType);    
+    var grouped = invoice.Payments.GroupBy(payment => payment.GetPaymentMethodId()?.PaymentType).Where(entities => entities.Key!= null);    
 }
 @foreach (var paymentGroup in grouped)
 {

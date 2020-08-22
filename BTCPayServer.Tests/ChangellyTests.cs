@@ -1,7 +1,5 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
@@ -10,10 +8,8 @@ using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Payments.Changelly;
 using BTCPayServer.Payments.Changelly.Models;
 using BTCPayServer.Services.Rates;
-using BTCPayServer.Services.Stores;
 using BTCPayServer.Tests.Logging;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -24,7 +20,7 @@ namespace BTCPayServer.Tests
         public const int TestTimeout = 60_000;
         public ChangellyTests(ITestOutputHelper helper)
         {
-            Logs.Tester = new XUnitLog(helper) {Name = "Tests"};
+            Logs.Tester = new XUnitLog(helper) { Name = "Tests" };
             Logs.LogProvider = new XUnitLogProvider(helper);
         }
 

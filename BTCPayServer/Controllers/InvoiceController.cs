@@ -1,12 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Logging;
 using BTCPayServer.Models;
 using BTCPayServer.Payments;
@@ -16,29 +18,31 @@ using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
-using BTCPayServer.Services.Wallets;
 using BTCPayServer.Validation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using NBitcoin;
 using NBitpayClient;
 using Newtonsoft.Json;
+using CreateInvoiceRequest = BTCPayServer.Models.CreateInvoiceRequest;
+using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Controllers
 {
     [Filters.BitpayAPIConstraint(false)]
     public partial class InvoiceController : Controller
     {
-        InvoiceRepository _InvoiceRepository;
-        ContentSecurityPolicies _CSP;
-        RateFetcher _RateProvider;
-        StoreRepository _StoreRepository;
-        UserManager<ApplicationUser> _UserManager;
-        private CurrencyNameTable _CurrencyNameTable;
-        EventAggregator _EventAggregator;
-        BTCPayNetworkProvider _NetworkProvider;
+        readonly InvoiceRepository _InvoiceRepository;
+        readonly ContentSecurityPolicies _CSP;
+        readonly RateFetcher _RateProvider;
+        readonly StoreRepository _StoreRepository;
+        readonly UserManager<ApplicationUser> _UserManager;
+        private readonly CurrencyNameTable _CurrencyNameTable;
+        readonly EventAggregator _EventAggregator;
+        readonly BTCPayNetworkProvider _NetworkProvider;
         private readonly PaymentMethodHandlerDictionary _paymentMethodHandlerDictionary;
-        IServiceProvider _ServiceProvider;
+        private readonly ApplicationDbContextFactory _dbContextFactory;
+        private readonly PullPaymentHostedService _paymentHostedService;
+        readonly IServiceProvider _ServiceProvider;
         public InvoiceController(
             IServiceProvider serviceProvider,
             InvoiceRepository invoiceRepository,
@@ -49,7 +53,9 @@ namespace BTCPayServer.Controllers
             EventAggregator eventAggregator,
             ContentSecurityPolicies csp,
             BTCPayNetworkProvider networkProvider,
-            PaymentMethodHandlerDictionary paymentMethodHandlerDictionary)
+            PaymentMethodHandlerDictionary paymentMethodHandlerDictionary,
+            ApplicationDbContextFactory dbContextFactory,
+            PullPaymentHostedService paymentHostedService)
         {
             _ServiceProvider = serviceProvider;
             _CurrencyNameTable = currencyNameTable ?? throw new ArgumentNullException(nameof(currencyNameTable));
@@ -60,6 +66,8 @@ namespace BTCPayServer.Controllers
             _EventAggregator = eventAggregator;
             _NetworkProvider = networkProvider;
             _paymentMethodHandlerDictionary = paymentMethodHandlerDictionary;
+            _dbContextFactory = dbContextFactory;
+            _paymentHostedService = paymentHostedService;
             _CSP = csp;
         }
 
@@ -128,6 +136,16 @@ namespace BTCPayServer.Controllers
             var rules = storeBlob.GetRateRules(_NetworkProvider);
             var excludeFilter = storeBlob.GetExcludedPaymentMethods(); // Here we can compose filters from other origin with PaymentFilter.Any()
 
+            if (invoice.PaymentCurrencies?.Any() is true)
+            {
+                invoice.SupportedTransactionCurrencies ??=
+                    new Dictionary<string, InvoiceSupportedTransactionCurrency>();
+                foreach (string paymentCurrency in invoice.PaymentCurrencies)
+                {
+                    invoice.SupportedTransactionCurrencies.TryAdd(paymentCurrency,
+                        new InvoiceSupportedTransactionCurrency() { Enabled = true });
+                }
+            }
             if (invoice.SupportedTransactionCurrencies != null && invoice.SupportedTransactionCurrencies.Count != 0)
             {
                 var supportedTransactionCurrencies = invoice.SupportedTransactionCurrencies
@@ -181,7 +199,7 @@ namespace BTCPayServer.Controllers
             {
                 StringBuilder errors = new StringBuilder();
                 if (!store.GetSupportedPaymentMethods(_NetworkProvider).Any())
-                    errors.AppendLine("Warning: No wallet has been linked to your BTCPay Store. See the following link for more information on how to connect your store and wallet. (https://docs.btcpayserver.org/getting-started/connectwallet)");
+                    errors.AppendLine("Warning: No wallet has been linked to your BTCPay Store. See the following link for more information on how to connect your store and wallet. (https://docs.btcpayserver.org/WalletSetup/)");
                 foreach (var error in logs.ToList())
                 {
                     errors.AppendLine(error.ToString());
@@ -259,7 +277,7 @@ namespace BTCPayServer.Controllers
 
                 using (logs.Measure($"{logPrefix} Payment method details creation"))
                 {
-                    var paymentDetails = await handler.CreatePaymentMethodDetails(supportedPaymentMethod, paymentMethod, store, network, preparePayment);
+                    var paymentDetails = await handler.CreatePaymentMethodDetails(logs, supportedPaymentMethod, paymentMethod, store, network, preparePayment);
                     paymentMethod.SetPaymentMethodDetails(paymentDetails);
                 }
 

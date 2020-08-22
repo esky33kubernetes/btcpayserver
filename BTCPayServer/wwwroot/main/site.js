@@ -1,4 +1,9 @@
-﻿$(function () {
+$(function () {
+    // initialize timezone offset value if field is present in page
+    var timezoneOffset = new Date().getTimezoneOffset();
+    $("#TimezoneOffset").val(timezoneOffset);
+
+    // localize all elements that have localizeDate class
     $(".localizeDate").each(function (index) {
         var serverDate = $(this).text();
         var localDate = new Date(serverDate);
@@ -6,7 +11,18 @@
         var dateString = localDate.toLocaleDateString() + " " + localDate.toLocaleTimeString();
         $(this).text(dateString);
     });
-
+    
+    
+    function updateTimeAgo(){
+        var timeagoElements = $("[data-timeago-unixms]");
+        timeagoElements.each(function () {
+            var elem = $(this);
+            elem.text(moment(elem.data("timeago-unixms")).fromNow());
+        });
+        setTimeout(updateTimeAgo, 1000);
+    }
+    updateTimeAgo();
+    
     // intializing date time pickers throughts website
     $(".flatdtpicker").each(function () {
         var element = $(this);
@@ -49,6 +65,8 @@
         });
     });
 
+    $('[data-toggle="tooltip"]').tooltip();
+
     function handleInputGroupClearButtonDisplay(element) {
         var inputs = $(element).parents(".input-group").find("input");
 
@@ -61,6 +79,17 @@
             }
         }
     }
+
+    $('[data-clipboard]').on('click', function (e) {
+        if (navigator.clipboard) {
+            e.preventDefault();
+            var item = e.currentTarget;
+            var text = item.getAttribute('data-clipboard');
+            navigator.clipboard.writeText(text);
+            item.blur();
+        }
+    });
+
 });
 
 function switchTimeFormat() {

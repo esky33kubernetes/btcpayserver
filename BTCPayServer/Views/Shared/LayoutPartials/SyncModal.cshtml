@@ -1,0 +1,51 @@
+﻿@using BTCPayServer.Contracts
+@inject IEnumerable<ISyncSummaryProvider> SyncSummaryProviders;
+@if(SyncSummaryProviders.Any(provider => !provider.AllAvailable()))
+{
+    <!-- Modal -->
+    <div id="modalDialog" class="modal-dialog animated bounceInRight"
+         style="z-index:1000">
+        @* Z-Index less then other bootstrap modals (1050) *@
+
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title">Your nodes are synching...</h4>
+                <button type="button" class="close" onclick="dismissSyncModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 400px; overflow-y: scroll;">
+                <p>
+                    Your node is synching the entire blockchain and validating the consensus rules...
+                </p>
+                @foreach (var provider in SyncSummaryProviders)
+                {
+                    <partial name="@provider.Partial" />
+                }
+                <p>
+                    <a href="https://www.youtube.com/watch?v=OrYDehC-8TU" target="_blank">Watch this video</a> to understand the importance of blockchain synchronization.
+                </p>
+
+                <p>If you really don't want to synch and you are familiar with the command line, check <a href="https://github.com/btcpayserver/btcpayserver-docker/blob/master/contrib/FastSync/README.md" target="_blank">FastSync</a>.</p>
+            </div>
+
+        </div>
+
+    </div>
+
+    @*<link href="~/vendor/animatecss/animate.css" rel="stylesheet" asp-append-version="true" />*@
+    <script type="text/javascript">
+        function dismissSyncModal() {
+            $("#modalDialog").addClass('animated bounceOutRight')
+        }
+    </script>
+
+    <style type="text/css">
+        #modalDialog {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            margin: 0px;
+        }
+    </style>
+
+}

@@ -1,18 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using BTCPayServer.Services.Invoices;
 
 namespace BTCPayServer.Models.InvoicingModels
 {
-    public class InvoicesModel
+    public class InvoicesModel : BasePagingViewModel
     {
-        public int Skip { get; set; }
-        public int Count { get; set; }
-        public int Total { get; set; }
-        public string SearchTerm { get; set; }
-        public int? TimezoneOffset { get; set; }
         public List<InvoiceModel> Invoices { get; set; } = new List<InvoiceModel>();
         public string[] StoreIds { get; set; }
     }
