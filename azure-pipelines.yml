@@ -1,4 +1,4 @@
-# Build a Docker image 
+# Build a Docker image
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
 trigger:
@@ -13,7 +13,7 @@ variables:
 stages:
 - stage: Build
   displayName: Build image
-  jobs:  
+  jobs:
   - job: Build
     displayName: Build
     pool:
@@ -25,4 +25,4 @@ stages:
         command: build
         dockerfile: 'amd64.Dockerfile'
         tags: |
-          $(1.0.3.164)
+          $(1.0.5.5)
