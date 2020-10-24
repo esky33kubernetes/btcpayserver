@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
-using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using PaymentRequestData = BTCPayServer.Data.PaymentRequestData;
@@ -141,9 +139,7 @@ namespace BTCPayServer.Models.PaymentRequestViewModels
             public DateTime ExpiryDate { get; set; }
             public decimal Amount { get; set; }
             public string AmountFormatted { get; set; }
-            public InvoiceState State { get; set; }
-            public InvoiceStatus Status { get; set; }
-            public string StateFormatted { get; set; }
+            public string Status { get; set; }
 
             public List<PaymentRequestInvoicePayment> Payments { get; set; }
             public string Currency { get; set; }
@@ -153,10 +149,6 @@ namespace BTCPayServer.Models.PaymentRequestViewModels
         {
             public string PaymentMethod { get; set; }
             public decimal Amount { get; set; }
-            public string RateFormatted { get; set; }
-            public decimal Paid { get; set; }
-            public string PaidFormatted { get; set; }
-            public DateTime ReceivedDate { get; set; }
             public string Link { get; set; }
             public string Id { get; set; }
         }

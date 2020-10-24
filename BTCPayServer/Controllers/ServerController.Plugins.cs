@@ -29,7 +29,7 @@ namespace BTCPayServer.Controllers
                 TempData.SetStatusMessageModel(new StatusMessageModel()
                 {
                     Severity = StatusMessageModel.StatusSeverity.Error,
-                    Message = "Remote plugins lookup failed. Try again later."
+                    Message = "The remote could not be reached"
                 });
                 availablePlugins = Array.Empty<PluginService.AvailablePlugin>();
             }
@@ -60,7 +60,7 @@ namespace BTCPayServer.Controllers
             pluginService.UninstallPlugin(plugin);
             TempData.SetStatusMessageModel(new StatusMessageModel()
             {
-                Message = "Plugin scheduled to be uninstalled.",
+                Message = "Plugin scheduled to be uninstalled",
                 Severity = StatusMessageModel.StatusSeverity.Success
             });
 
@@ -73,7 +73,7 @@ namespace BTCPayServer.Controllers
             pluginService.CancelCommands(plugin);
             TempData.SetStatusMessageModel(new StatusMessageModel()
             {
-                Message = "Plugin action cancelled.",
+                Message = "Updated",
                 Severity = StatusMessageModel.StatusSeverity.Success
             });
 

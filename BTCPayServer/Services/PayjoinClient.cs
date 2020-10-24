@@ -109,11 +109,10 @@ namespace BTCPayServer.Services
             if (!signedPSBT.TryGetEstimatedFeeRate(out var originalFeeRate))
                 throw new ArgumentException("signedPSBT should have utxo information", nameof(signedPSBT));
             var originalFee = signedPSBT.GetFee();
-            if (changeOutput is PSBTOutput)
-                optionalParameters.MaxAdditionalFeeContribution = MaxFeeBumpContribution is null ?
-                    // By default, we want to keep same fee rate and a single additional input
-                    originalFeeRate.GetFee(GetVirtualSize(inputScriptType)) :
-                    MaxFeeBumpContribution;
+            optionalParameters.MaxAdditionalFeeContribution = MaxFeeBumpContribution is null ?
+                // By default, we want to keep same fee rate and a single additional input
+                originalFeeRate.GetFee(GetVirtualSize(inputScriptType)) :
+                MaxFeeBumpContribution;
             if (MinimumFeeRate is FeeRate v)
                 optionalParameters.MinFeeRate = v;
 
