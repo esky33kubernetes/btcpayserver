@@ -329,7 +329,9 @@ retry:
             var paymentMethodIdStr = paymentMethodId?.ToString();
             var addresses = context.HistoricalAddressInvoices.Where(data =>
                 (data.InvoiceDataId == invoiceId && paymentMethodIdStr == null ||
+#pragma warning disable CS0618 // Type or member is obsolete
                  data.CryptoCode == paymentMethodIdStr) &&
+#pragma warning restore CS0618 // Type or member is obsolete
                 data.UnAssigned == null);
             foreach (var historicalAddressInvoiceData in addresses)
             {
@@ -463,6 +465,20 @@ retry:
         {
             var res = await GetInvoiceRaw(id, inludeAddressData);
             return res == null ? null : ToEntity(res);
+        }
+        public async Task<InvoiceEntity[]> GetInvoices(string[] invoiceIds)
+        {
+            var invoiceIdSet = invoiceIds.ToHashSet();
+            using (var context = _ContextFactory.CreateContext())
+            {
+                IQueryable<Data.InvoiceData> query =
+                    context
+                    .Invoices
+                    .Include(o => o.Payments)
+                    .Where(o => invoiceIdSet.Contains(o.Id));
+
+                return (await query.ToListAsync()).Select(o => ToEntity(o)).ToArray();
+            }
         }
 
         private async Task<InvoiceData> GetInvoiceRaw(string id, bool inludeAddressData = false)
