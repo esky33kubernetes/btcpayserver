@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Extensions;
+using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Models;
@@ -435,7 +437,7 @@ namespace BTCPayServer.Controllers
 
             if (!isAdmin)
             {
-                foreach (var p in viewModel.PermissionValues.Where(item => Policies.IsServerPolicy(item.Permission)))
+                foreach (var p in viewModel.PermissionValues.Where(item => item.Permission is null || Policies.IsServerPolicy(item.Permission)))
                 {
                     p.Forbidden = true;
                 }
@@ -465,11 +467,15 @@ namespace BTCPayServer.Controllers
                     {BTCPayServer.Client.Policies.CanCreateUser, ("Create new users", "The app will be able to create new users on this server.")},
                     {BTCPayServer.Client.Policies.CanModifyStoreSettings, ("Modify your stores", "The app will be able to view, modify, delete and create new invoices on all your stores.")},
                     {$"{BTCPayServer.Client.Policies.CanModifyStoreSettings}:", ("Manage selected stores", "The app will be able to view, modify, delete and create new invoices on the selected stores.")},
+                    {BTCPayServer.Client.Policies.CanModifyStoreWebhooks, ("Modify stores webhooks", "The app will be mofidy the webhooks of all your stores.")},
+                    {$"{BTCPayServer.Client.Policies.CanModifyStoreWebhooks}:", ("Modify selected stores' webhooks", "The app will be mofidy the webhooks of the selected stores.")},
                     {BTCPayServer.Client.Policies.CanViewStoreSettings, ("View your stores", "The app will be able to view stores settings.")},
                     {$"{BTCPayServer.Client.Policies.CanViewStoreSettings}:", ("View your stores", "The app will be able to view the selected stores' settings.")},
                     {BTCPayServer.Client.Policies.CanModifyServerSettings, ("Manage your server", "The app will have total control on the server settings of your server")},
                     {BTCPayServer.Client.Policies.CanViewProfile, ("View your profile", "The app will be able to view your user profile.")},
                     {BTCPayServer.Client.Policies.CanModifyProfile, ("Manage your profile", "The app will be able to view and modify your user profile.")},
+                    {BTCPayServer.Client.Policies.CanManageNotificationsForUser, ("Manage your notifications", "The app will be able to view and modify your user notifications.")},
+                    {BTCPayServer.Client.Policies.CanViewNotificationsForUser, ("View your notifications", "The app will be able to view your user notifications.")},
                     {BTCPayServer.Client.Policies.CanCreateInvoice, ("Create an invoice", "The app will be able to create new invoices.")},
                     {$"{BTCPayServer.Client.Policies.CanCreateInvoice}:", ("Create an invoice", "The app will be able to create new invoices on the selected stores.")},
                     {BTCPayServer.Client.Policies.CanViewInvoices, ("View invoices", "The app will be able to view invoices.")},

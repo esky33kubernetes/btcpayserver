@@ -153,6 +153,11 @@
         <div class="col-lg-5">
             <h4>Preview</h4>
             <div id="preview"></div>
+            <div v-show="!srvModel.appIdEndpoint">
+                <h4 class="mt-2">Link</h4>
+                <span>Alternatively, you can share this link or encode it in a QR code</span>
+                <div id="preview-link"></div>
+            </div>
         </div>
     </div>
     <hr />
@@ -208,7 +213,7 @@
                 This parameter allows you to specify additional query string parameters that should be appended to the checkout page once the invoice is created. For example, <kbd>lang=da-DK</kbd> would load the checkout page in Danish by default.
 
             </div>
-        </div>  
+        </div>
          <div class="row">
             <div class="col-lg-7">
                 <div class="form-group">
@@ -229,7 +234,7 @@
             </div>
             <div class="col-lg-5">
                 <br />
-                This allows you to link this pay button to an app instead. Some features are disabled due to the different endpoint capabilities. You can set which perk/item this button should be targeting. 
+                This allows you to link this pay button to an app instead. Some features are disabled due to the different endpoint capabilities. You can set which perk/item this button should be targeting.
 
             </div>
         </div>
@@ -285,7 +290,7 @@
                 inputChanges: function (event, buttonSize) {
                     inputChanges(event, buttonSize);
                 }
-                
+
             },
             watch: {
                 buttonInlineTextMode: function (checked) {
@@ -371,6 +376,11 @@
             border-radius: 5px;
             line-height: 35px;
             background: #fff;
+        }
+        #btcpay-input-price::-webkit-outer-spin-button,
+        #btcpay-input-price::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
         }
     </style>
 </script>

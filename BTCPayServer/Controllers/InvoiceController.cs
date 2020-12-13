@@ -45,6 +45,9 @@ namespace BTCPayServer.Controllers
         private readonly ApplicationDbContextFactory _dbContextFactory;
         private readonly PullPaymentHostedService _paymentHostedService;
         readonly IServiceProvider _ServiceProvider;
+
+        public WebhookNotificationManager WebhookNotificationManager { get; }
+
         public InvoiceController(
             IServiceProvider serviceProvider,
             InvoiceRepository invoiceRepository,
@@ -57,7 +60,8 @@ namespace BTCPayServer.Controllers
             BTCPayNetworkProvider networkProvider,
             PaymentMethodHandlerDictionary paymentMethodHandlerDictionary,
             ApplicationDbContextFactory dbContextFactory,
-            PullPaymentHostedService paymentHostedService)
+            PullPaymentHostedService paymentHostedService,
+            WebhookNotificationManager webhookNotificationManager)
         {
             _ServiceProvider = serviceProvider;
             _CurrencyNameTable = currencyNameTable ?? throw new ArgumentNullException(nameof(currencyNameTable));
@@ -70,6 +74,7 @@ namespace BTCPayServer.Controllers
             _paymentMethodHandlerDictionary = paymentMethodHandlerDictionary;
             _dbContextFactory = dbContextFactory;
             _paymentHostedService = paymentHostedService;
+            WebhookNotificationManager = webhookNotificationManager;
             _CSP = csp;
         }
 
@@ -167,6 +172,7 @@ namespace BTCPayServer.Controllers
             entity.Currency = invoice.Currency;
             entity.Price = invoice.Amount;
             entity.SpeedPolicy = invoice.Checkout.SpeedPolicy ?? store.SpeedPolicy;
+            entity.DefaultLanguage = invoice.Checkout.DefaultLanguage;
             IPaymentFilter excludeFilter = null;
             if (invoice.Checkout.PaymentMethods != null)
             {
@@ -176,6 +182,7 @@ namespace BTCPayServer.Controllers
                 excludeFilter = PaymentFilter.Where(p => !supportedTransactionCurrencies.Contains(p));
             }
             entity.PaymentTolerance = invoice.Checkout.PaymentTolerance ?? storeBlob.PaymentTolerance;
+            entity.RedirectURLTemplate = invoice.Checkout.RedirectURL?.Trim();
             if (additionalTags != null)
                 entity.InternalTags.AddRange(additionalTags);
             return await CreateInvoiceCoreRaw(entity, store, excludeFilter, cancellationToken);
@@ -195,7 +202,7 @@ namespace BTCPayServer.Controllers
                     throw new BitpayHttpException(400, "Invalid email");
                 entity.RefundMail = entity.Metadata.BuyerEmail;
             }
-            entity.Status = InvoiceStatus.New;
+            entity.Status = InvoiceStatusLegacy.New;
             HashSet<CurrencyPair> currencyPairsToFetch = new HashSet<CurrencyPair>();
             var rules = storeBlob.GetRateRules(_NetworkProvider);
             var excludeFilter = storeBlob.GetExcludedPaymentMethods(); // Here we can compose filters from other origin with PaymentFilter.Any()
@@ -215,7 +222,7 @@ namespace BTCPayServer.Controllers
                     if (paymentMethodCriteria.Value != null)
                     {
                         currencyPairsToFetch.Add(new CurrencyPair(network.CryptoCode, paymentMethodCriteria.Value.Currency));
-                    }   
+                    }
                 }
             }
 
@@ -305,7 +312,9 @@ namespace BTCPayServer.Controllers
             }).ToArray());
         }
 
-        private async Task<PaymentMethod> CreatePaymentMethodAsync(Dictionary<CurrencyPair, Task<RateResult>> fetchingByCurrencyPair, IPaymentMethodHandler handler, ISupportedPaymentMethod supportedPaymentMethod, BTCPayNetworkBase network, InvoiceEntity entity, StoreData store, InvoiceLogs logs)
+        private async Task<PaymentMethod> CreatePaymentMethodAsync(Dictionary<CurrencyPair, Task<RateResult>> fetchingByCurrencyPair,
+            IPaymentMethodHandler handler, ISupportedPaymentMethod supportedPaymentMethod, BTCPayNetworkBase network, InvoiceEntity entity,
+            StoreData store, InvoiceLogs logs)
         {
             try
             {
@@ -317,12 +326,14 @@ namespace BTCPayServer.Controllers
                 {
                     return null;
                 }
-                PaymentMethod paymentMethod = new PaymentMethod();
-                paymentMethod.ParentEntity = entity;
-                paymentMethod.Network = network;
+                var paymentMethod = new PaymentMethod
+                {
+                    ParentEntity = entity,
+                    Network = network,
+                    Rate = rate.BidAsk.Bid,
+                    PreferOnion = Uri.TryCreate(entity.ServerUrl, UriKind.Absolute, out var u) && u.DnsSafeHost.EndsWith(".onion", StringComparison.OrdinalIgnoreCase)
+                };
                 paymentMethod.SetId(supportedPaymentMethod.PaymentId);
-                paymentMethod.Rate = rate.BidAsk.Bid;
-                paymentMethod.PreferOnion = Uri.TryCreate(entity.ServerUrl, UriKind.Absolute, out var u) && u.DnsSafeHost.EndsWith(".onion", StringComparison.OrdinalIgnoreCase);
 
                 using (logs.Measure($"{logPrefix} Payment method details creation"))
                 {
@@ -339,7 +350,7 @@ namespace BTCPayServer.Controllers
                     {
                         var amount = paymentMethod.Calculate().Due.GetValue(network as BTCPayNetwork);
                         var limitValueCrypto = criteria.Value.Value / currentRateToCrypto.BidAsk.Bid;
-                        
+
                         if (amount < limitValueCrypto && criteria.Above)
                         {
                             logs.Write($"{logPrefix} invoice amount below accepted value for payment method", InvoiceEventData.EventSeverity.Error);
@@ -369,7 +380,7 @@ namespace BTCPayServer.Controllers
             }
             catch (Exception ex)
             {
-                logs.Write($"{supportedPaymentMethod.PaymentId.CryptoCode}: Unexpected exception ({ex.ToString()})", InvoiceEventData.EventSeverity.Error);
+                logs.Write($"{supportedPaymentMethod.PaymentId.CryptoCode}: Unexpected exception ({ex})", InvoiceEventData.EventSeverity.Error);
             }
             return null;
         }

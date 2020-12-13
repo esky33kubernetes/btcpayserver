@@ -26,6 +26,13 @@ namespace BTCPayServer.Client
                 CreateHttpRequest($"api/v1/stores/{storeId}/invoices/{invoiceId}"), token);
             return await HandleResponse<InvoiceData>(response);
         }
+        public virtual async Task<InvoicePaymentMethodDataModel[]> GetInvoicePaymentMethods(string storeId, string invoiceId,
+            CancellationToken token = default)
+        {
+            var response = await _httpClient.SendAsync(
+                CreateHttpRequest($"api/v1/stores/{storeId}/invoices/{invoiceId}/payment-methods"), token);
+            return await HandleResponse<InvoicePaymentMethodDataModel[]>(response);
+        }
 
         public virtual async Task ArchiveInvoice(string storeId, string invoiceId,
             CancellationToken token = default)
@@ -47,12 +54,23 @@ namespace BTCPayServer.Client
             return await HandleResponse<InvoiceData>(response);
         }
 
+        public virtual async Task<InvoiceData> UpdateInvoice(string storeId, string invoiceId,
+            UpdateInvoiceRequest request, CancellationToken token = default)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            var response = await _httpClient.SendAsync(
+                CreateHttpRequest($"api/v1/stores/{storeId}/invoices/{invoiceId}", bodyPayload: request,
+                    method: HttpMethod.Put), token);
+            return await HandleResponse<InvoiceData>(response);
+        }
+
         public virtual async Task<InvoiceData> MarkInvoiceStatus(string storeId, string invoiceId,
             MarkInvoiceStatusRequest request, CancellationToken token = default)
         {
             if (request == null)
                 throw new ArgumentNullException(nameof(request));
-            if (request.Status!= InvoiceStatus.Complete && request.Status!= InvoiceStatus.Invalid)
+            if (request.Status!= InvoiceStatus.Settled && request.Status!= InvoiceStatus.Invalid)
                 throw new ArgumentOutOfRangeException(nameof(request.Status), "Status can only be Invalid or Complete");
             var response = await _httpClient.SendAsync(
                 CreateHttpRequest($"api/v1/stores/{storeId}/invoices/{invoiceId}/status", bodyPayload: request,

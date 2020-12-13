@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
+using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
+using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Shopify;
@@ -16,6 +20,10 @@ using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using NBitcoin;
+using NBitcoin.DataEncoders;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NicolasDorier.RateLimits;
 
@@ -78,7 +86,7 @@ namespace BTCPayServer.Controllers
                 .ToArray();
 
             var firstInvoiceStillPending =
-                matchedExistingInvoices.FirstOrDefault(entity => entity.GetInvoiceState().Status == InvoiceStatus.New);
+                matchedExistingInvoices.FirstOrDefault(entity => entity.GetInvoiceState().Status == InvoiceStatusLegacy.New);
             if (firstInvoiceStillPending != null)
             {
                 return Ok(new
@@ -90,7 +98,7 @@ namespace BTCPayServer.Controllers
 
             var firstInvoiceSettled =
                 matchedExistingInvoices.LastOrDefault(entity =>
-                    new[] {InvoiceStatus.Paid, InvoiceStatus.Complete, InvoiceStatus.Confirmed}.Contains(
+                    new[] {InvoiceStatusLegacy.Paid, InvoiceStatusLegacy.Complete, InvoiceStatusLegacy.Confirmed}.Contains(
                         entity.GetInvoiceState().Status));
 
             var store = await _Repo.FindStore(storeId);
@@ -111,7 +119,7 @@ namespace BTCPayServer.Controllers
             {
                 //if BTCPay was shut down before the tx managed to get registered on shopify, this will fix it on the next UI load in shopify
                 if (client != null && order?.FinancialStatus == "pending" &&
-                    firstInvoiceSettled.Status != InvoiceStatus.Paid)
+                    firstInvoiceSettled.Status != InvoiceStatusLegacy.Paid)
                 {
                     await new OrderTransactionRegisterLogic(client).Process(orderId, firstInvoiceSettled.Id,
                         firstInvoiceSettled.Currency,
@@ -169,6 +177,127 @@ namespace BTCPayServer.Controllers
             var vm = new IntegrationsViewModel {Shopify = blob.Shopify};
 
             return View("Integrations", vm);
+        }
+
+        [HttpGet]
+        [Route("{storeId}/webhooks")]
+        public async Task<IActionResult> Webhooks()
+        {
+            var webhooks = await this._Repo.GetWebhooks(CurrentStore.Id);
+            return View(nameof(Webhooks), new WebhooksViewModel()
+            {
+                Webhooks = webhooks.Select(w => new WebhooksViewModel.WebhookViewModel()
+                {
+                    Id = w.Id,
+                    Url = w.GetBlob().Url
+                }).ToArray()
+            });
+        }
+        [HttpGet]
+        [Route("{storeId}/webhooks/new")]
+        public IActionResult NewWebhook()
+        {
+            return View(nameof(ModifyWebhook), new EditWebhookViewModel()
+            {
+                Active = true,
+                Everything = true,
+                IsNew = true,
+                Secret = Encoders.Base58.EncodeData(RandomUtils.GetBytes(20))
+            });
+        }
+
+        [HttpGet]
+        [Route("{storeId}/webhooks/{webhookId}/remove")]
+        public async Task<IActionResult> DeleteWebhook(string webhookId)
+        {
+            var webhook = await _Repo.GetWebhook(CurrentStore.Id, webhookId);
+            if (webhook is null)
+                return NotFound();
+            return View("Confirm", new ConfirmModel()
+            {
+                Title = $"Delete a webhook",
+                Description = "This webhook will be removed from this store, do you wish to continue?",
+                Action = "Delete"
+            });
+        }
+
+        [HttpPost]
+        [Route("{storeId}/webhooks/{webhookId}/remove")]
+        public async Task<IActionResult> DeleteWebhookPost(string webhookId)
+        {
+            var webhook = await _Repo.GetWebhook(CurrentStore.Id, webhookId);
+            if (webhook is null)
+                return NotFound();
+            await _Repo.DeleteWebhook(CurrentStore.Id, webhookId);
+            TempData[WellKnownTempData.SuccessMessage] = "Webhook successfully deleted";
+            return RedirectToAction(nameof(Webhooks), new { storeId = CurrentStore.Id });
+        }
+
+        [HttpPost]
+        [Route("{storeId}/webhooks/new")]
+        public async Task<IActionResult> NewWebhook(string storeId, EditWebhookViewModel viewModel)
+        {
+            if (!ModelState.IsValid)
+                return View(viewModel);
+
+            var webhookId = await _Repo.CreateWebhook(CurrentStore.Id, viewModel.CreateBlob());
+            TempData[WellKnownTempData.SuccessMessage] = "The webhook has been created";
+            return RedirectToAction(nameof(Webhooks), new { storeId });
+        }
+        [HttpGet]
+        [Route("{storeId}/webhooks/{webhookId}")]
+        public async Task<IActionResult> ModifyWebhook(string webhookId)
+        {
+            var webhook = await _Repo.GetWebhook(CurrentStore.Id, webhookId);
+            if (webhook is null)
+                return NotFound();
+            var blob = webhook.GetBlob();
+            var deliveries = await _Repo.GetWebhookDeliveries(CurrentStore.Id, webhookId, 20);
+            return View(nameof(ModifyWebhook), new EditWebhookViewModel(blob)
+            {
+                Deliveries = deliveries
+                            .Select(s => new DeliveryViewModel(s)).ToList()
+            });
+        }
+        [HttpPost]
+        [Route("{storeId}/webhooks/{webhookId}")]
+        public async Task<IActionResult> ModifyWebhook(string webhookId, EditWebhookViewModel viewModel)
+        {
+            var webhook = await _Repo.GetWebhook(CurrentStore.Id, webhookId);
+            if (webhook is null)
+                return NotFound();
+
+            await _Repo.UpdateWebhook(CurrentStore.Id, webhookId, viewModel.CreateBlob());
+            TempData[WellKnownTempData.SuccessMessage] = "The webhook has been updated";
+            return RedirectToAction(nameof(Webhooks), new { storeId = CurrentStore.Id });
+        }
+
+        [HttpPost]
+        [Route("{storeId}/webhooks/{webhookId}/deliveries/{deliveryId}/redeliver")]
+        public async Task<IActionResult> RedeliverWebhook(string webhookId, string deliveryId)
+        {
+            var delivery = await _Repo.GetWebhookDelivery(CurrentStore.Id, webhookId, deliveryId);
+            if (delivery is null)
+                return NotFound();
+            var newDeliveryId = await WebhookNotificationManager.Redeliver(deliveryId);
+            if (newDeliveryId is null)
+                return NotFound();
+            TempData[WellKnownTempData.SuccessMessage] = "Successfully planned a redelivery";
+            return RedirectToAction(nameof(ModifyWebhook),
+                new
+                {
+                    storeId = CurrentStore.Id,
+                    webhookId
+                });
+        }
+        [HttpGet]
+        [Route("{storeId}/webhooks/{webhookId}/deliveries/{deliveryId}/request")]
+        public async Task<IActionResult> WebhookDelivery(string webhookId, string deliveryId)
+        {
+            var delivery = await _Repo.GetWebhookDelivery(CurrentStore.Id, webhookId, deliveryId);
+            if (delivery is null)
+                return NotFound();
+            return this.File(delivery.GetBlob().Request, "application/json");
         }
 
         [HttpPost]

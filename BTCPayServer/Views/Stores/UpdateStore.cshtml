@@ -19,68 +19,56 @@
 <div class="row">
     <div class="col-lg-10 col-xl-9">
         <div class="mb-5">
-            <h4 class="mb-3">
-                <span class="mr-1">Wallet</span>
-                <span class="text-muted small">On-chain payments</span>
-            </h4>
+            <h4 class="mb-3">Wallet</h4>
             @if (Model.HintWallet)
             {
-                <div class="alert alert-light d-flex align-items-start mb-3">
-                    <span class="fa fa-warning text-warning mt-1"></span>
-                    <p class="mb-0 mx-3 flex-fill">
-                        A store requires a wallet to receive payments. Set up your wallet.
-                    </p>
-                    <button type="button" class="close only-for-js" data-dismiss="alert" aria-label="Close" onclick="return dismissHint('Wallet', '@Model.Id');">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
+                <p>Set up your wallet to receive payments at your store.</p>
             }
             <ul class="list-group mb-3">
                 @foreach (var scheme in Model.DerivationSchemes.OrderBy(scheme => scheme.Collapsed))
                 {
-                    <li class="list-group-item @(scheme.Collapsed ? "collapsed": "")">
+                    var isSetUp = !string.IsNullOrWhiteSpace(scheme.Value);
+
+                    <li class="list-group-item bg-tile @(scheme.Collapsed ? "collapsed": "")">
                         <div class="d-flex align-items-center">
-                            <span class="d-flex align-items-center flex-fill mr-3">
-                                <strong>@scheme.Crypto</strong>
-                                @if (!string.IsNullOrWhiteSpace(scheme.Value))
+                            <span class="d-flex flex-wrap flex-fill flex-column flex-sm-row">
+                                <strong class="mr-3">@scheme.Crypto</strong>
+                                @if (isSetUp)
                                 {
-                                    <span class="text-light mx-2">|</span>
-                                    <span title="@scheme.Value" data-toggle="tooltip" class="d-flex">
-                                        <code class="text-truncate" style="max-width:10ch">
-                                            @scheme.Value
-                                        </code>
-                                        <code class="text-nowrap">
-                                            @if (scheme.Value.Length > 20)
-                                            {
-                                                var match = Regex.Match(scheme.Value, @"((?:-\[(?:[^\]])+\])+|\S{16})$");
-                                                @match.Value;
-                                            }
-                                        </code>
+                                    <span title="@scheme.Value" data-toggle="tooltip" class="d-flex mr-3">
+                                        <span class="text-truncate text-secondary" style="max-width:8ch">@scheme.Value</span>
+                                        @if (scheme.Value.Length > 20)
+                                        {
+                                            <span class="text-nowrap text-secondary">@Regex.Match(scheme.Value, @"((?:-\[(?:[^\]])+\])+|\S{6})$").Value</span>
+                                        }
                                     </span>
                                     @if (scheme.WalletSupported)
                                     {
-                                        <span class="text-light mx-2">|</span>
-                                        <a asp-action="WalletTransactions" asp-controller="Wallets" asp-route-walletId="@scheme.WalletId" class="text-secondary">Wallet</a>
+                                        <a asp-action="WalletTransactions" asp-controller="Wallets" asp-route-walletId="@scheme.WalletId" class="text-secondary mr-3">Manage Wallet</a>
                                     }
                                 }
                             </span>
-                            <span class="d-flex align-items-center">
+                            <span class="d-flex align-items-center fw-semibold">
                                 @if (scheme.Enabled)
                                 {
-                                    <strong class="d-flex align-items-center text-success">
+                                    <span class="d-flex align-items-center text-success">
                                         <span class="mr-2 btcpay-status btcpay-status--enabled"></span>
                                         Enabled
-                                    </strong>
+                                    </span>
                                 }
                                 else
                                 {
-                                    <strong class="d-flex align-items-center text-danger">
+                                    <span class="d-flex align-items-center text-danger">
                                         <span class="mr-2 btcpay-status btcpay-status--disabled"></span>
                                         Disabled
-                                    </strong>
+                                    </span>
                                 }
-                                <a asp-action="AddDerivationScheme" asp-route-cryptoCode="@scheme.Crypto" asp-route-storeId="@Context.GetRouteValue("storeId")" id="@($"Modify{scheme.Crypto}")" class="btn btn-@(scheme.Enabled ? "light" : "info") py-1 ml-3">
-                                    @(scheme.Enabled ? "Modify" : "Setup")
+                                @if (isSetUp)
+                                {
+                                    <span class="text-light ml-3 mr-2">|</span>
+                                }
+                                <a asp-action="AddDerivationScheme" asp-route-cryptoCode="@scheme.Crypto" asp-route-storeId="@Context.GetRouteValue("storeId")" id="@($"Modify{scheme.Crypto}")" class="btn btn-@(isSetUp ? "link px-1" : "primary btn-sm ml-4 px-3") py-1 fw-semibold">
+                                    @(isSetUp ? "Modify" : "Setup")
                                 </a>
                             </span>
                         </div>
@@ -102,52 +90,46 @@
         </div>
 
         <div class="mb-5">
-            <h4 class="mb-3">
-                <span class="mr-1">Lightning</span>
-                <span class="text-muted small">Off-chain payments</span>
-            </h4>
+            <h4 class="mb-3">Lightning</h4>
             @if (Model.HintLightning)
             {
-                <div class="alert alert-light d-flex align-items-start mb-3">
-                    <span class="fa fa-warning text-warning mt-1"></span>
-                    <p class="mb-0 mx-3 flex-fill">
-                        A connection to a Lightning node is required to receive Lightning payments.
-                    </p>
-                    <button id="dismissLightningHint" type="button" class="close only-for-js" data-dismiss="alert" aria-label="Close" onclick="return dismissHint('Lightning', '@Model.Id');">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
+                <p>A connection to a Lightning node is required to receive Lightning payments.</p>
             }
             <ul class="list-group mb-3">
                 @foreach (var scheme in Model.LightningNodes)
                 {
-                    <li class="list-group-item">
+                    var isSetUp = !string.IsNullOrWhiteSpace(scheme.Address);
+
+                    <li class="list-group-item bg-tile">
                         <div class="d-flex align-items-center">
-                            <span class="d-flex align-items-center flex-fill mr-3">
-                                <strong>@scheme.CryptoCode</strong>
-                                @if (!string.IsNullOrWhiteSpace(scheme.Address))
+                            <span class="d-flex flex-wrap flex-fill flex-column flex-sm-row">
+                                <strong class="mr-3">@scheme.CryptoCode</strong>
+                                @if (isSetUp)
                                 {
-                                    <span class="text-light mx-2">|</span>
-                                    <code class="smMaxWidth text-truncate">@scheme.Address</code>
+                                    <span class="smMaxWidth text-truncate text-secondary mr-3">@scheme.Address</span>
                                 }
                             </span>
-                            <span class="d-flex align-items-center">
+                            <span class="d-flex align-items-center fw-semibold">
                                 @if (scheme.Enabled)
                                 {
-                                    <strong class="d-flex align-items-center text-success">
+                                    <span class="d-flex align-items-center text-success">
                                         <span class="mr-2 btcpay-status btcpay-status--enabled"></span>
                                         Enabled
-                                    </strong>
+                                    </span>
                                 }
                                 else
                                 {
-                                    <strong class="d-flex align-items-center text-danger">
+                                    <span class="d-flex align-items-center text-danger">
                                         <span class="mr-2 btcpay-status btcpay-status--disabled"></span>
                                         Disabled
-                                    </strong>
+                                    </span>
                                 }
-                                <a asp-action="AddLightningNode" asp-route-cryptoCode="@scheme.CryptoCode" asp-route-storeId="@Context.GetRouteValue("storeId")" id="@($"Modify-Lightning{scheme.CryptoCode}")" class="btn btn-@(scheme.Enabled ? "light" : "info") py-1 ml-3">
-                                    @(scheme.Enabled ? "Modify" : "Setup")
+                                @if (isSetUp)
+                                {
+                                    <span class="text-light ml-3 mr-2">|</span>
+                                }
+                                <a asp-action="AddLightningNode" asp-route-cryptoCode="@scheme.CryptoCode" asp-route-storeId="@Context.GetRouteValue("storeId")" id="@($"Modify-Lightning{scheme.CryptoCode}")" class="btn btn-@(isSetUp ? "link px-1" : "primary btn-sm ml-4 px-3") py-1 fw-semibold">
+                                    @(isSetUp ? "Modify" : "Setup")
                                 </a>
                             </span>
                         </div>
@@ -336,11 +318,11 @@
         @if (Model.CanDelete)
         {
             <h4 class="mt-5 mb-3">Other actions</h4>
-            <button class="btn btn-link text-secondary mb-3 p-0" type="button" data-toggle="collapse" data-target="#danger-zone">
+            <button id="danger-zone-expander" class="btn btn-link text-secondary mb-3 p-0" type="button" data-toggle="collapse" data-target="#danger-zone">
                 See more actions
             </button>
             <div id="danger-zone" class="collapse">
-                <a class="btn btn-outline-danger mb-5" asp-action="DeleteStore" asp-route-storeId="@Model.Id">Delete this store</a>
+                <a id="delete-store" class="btn btn-outline-danger mb-5" asp-action="DeleteStore" asp-route-storeId="@Model.Id">Delete this store</a>
             </div>
         }
     </div>

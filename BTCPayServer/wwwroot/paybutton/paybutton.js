@@ -63,7 +63,7 @@ function getScripts(srvModel) {
         "    };" +
         "    xhttp.open(\"POST\", event.target.getAttribute('action'), true);" +
         "    xhttp.send(new FormData( event.target ));" +
-        "}" +       
+        "}" +
         "</script>";
 }
 
@@ -113,7 +113,7 @@ function inputChanges(event, buttonSize) {
             srvModel.useModal = false;
         }
     }
-    
+
     var html =
         //Scripts
         (srvModel.useModal? getScripts(srvModel) :"") +
@@ -122,13 +122,13 @@ function inputChanges(event, buttonSize) {
         // Form
         '<form method="POST" '+ ( srvModel.useModal? ' onsubmit="onBTCPayFormSubmit(event);return false" ' : '' )+' action="' + esc(srvModel.urlRoot) + actionUrl + '" class="btcpay-form btcpay-form--' + (srvModel.fitButtonInline ? 'inline' : 'block') +'">\n' +
             addInput("storeId", srvModel.storeId);
-    
+
     if(app){
         if (srvModel.orderId) html += addInput("orderId", srvModel.orderId);
         if (srvModel.serverIpn) html += addInput("notificationUrl", srvModel.serverIpn);
         if (srvModel.browserRedirect) html += addInput("redirectUrl", srvModel.browserRedirect);
         if (srvModel.appChoiceKey) html += addInput("choiceKey", srvModel.appChoiceKey);
-        
+
     }else{
         if (srvModel.useModal) html += addInput("jsonResponse", true);
 
@@ -144,7 +144,7 @@ function inputChanges(event, buttonSize) {
 
         if (srvModel.checkoutQueryString) html += addInput("checkoutQueryString", srvModel.checkoutQueryString);
     }
-   
+
 
     // Fixed amount: Add price and currency as hidden inputs
     if (isFixedAmount) {
@@ -175,7 +175,7 @@ function inputChanges(event, buttonSize) {
         html += addSlider(srvModel.price, srvModel.min, srvModel.max, srvModel.step, width);
         html += '  </div>\n';
     }
-    
+
     if(!srvModel.payButtonText){
         html += '  <input type="image" class="submit" name="submit" src="' + esc(srvModel.payButtonImageUrl) + '" style="width:' + width + '" alt="Pay with BtcPay, Self-Hosted Bitcoin Payment Processor">\n';
     }else{
@@ -188,6 +188,16 @@ function inputChanges(event, buttonSize) {
 
     $("#mainCode").text(html).html();
     $("#preview").html(html);
+    var form = document.querySelector("#preview form");
+    var url =  new URL(form.getAttribute("action"));
+    var formData =   new FormData(form);
+    formData.forEach((value, key) => {
+        if(key !== "jsonResponse"){
+            url.searchParams.append(key, value);
+        }
+    });
+    url = url.href;
+    $("#preview-link").html(`<a href="${url}">${url}</a>`)
 
     $('pre code').each(function (i, block) {
         hljs.highlightBlock(block);

@@ -25,17 +25,20 @@ namespace BTCPayServer.Payments.Lightning
         private readonly LightningClientFactoryService _lightningClientFactory;
         private readonly BTCPayNetworkProvider _networkProvider;
         private readonly SocketFactory _socketFactory;
+        private readonly CurrencyNameTable _currencyNameTable;
 
         public LightningLikePaymentHandler(
             NBXplorerDashboard dashboard,
             LightningClientFactoryService lightningClientFactory,
             BTCPayNetworkProvider networkProvider,
-            SocketFactory socketFactory)
+            SocketFactory socketFactory, 
+            CurrencyNameTable currencyNameTable)
         {
             _Dashboard = dashboard;
             _lightningClientFactory = lightningClientFactory;
             _networkProvider = networkProvider;
             _socketFactory = socketFactory;
+            _currencyNameTable = currencyNameTable;
         }
 
         public override PaymentType PaymentType => PaymentTypes.LightningLike;
@@ -79,7 +82,7 @@ namespace BTCPayServer.Payments.Lightning
                 }
                 catch (OperationCanceledException) when (cts.IsCancellationRequested)
                 {
-                    throw new PaymentMethodUnavailableException($"The lightning node did not reply in a timely manner");
+                    throw new PaymentMethodUnavailableException("The lightning node did not reply in a timely manner");
                 }
                 catch (Exception ex)
                 {
@@ -87,7 +90,7 @@ namespace BTCPayServer.Payments.Lightning
                 }
             }
             var nodeInfo = await test;
-            return new LightningLikePaymentMethodDetails()
+            return new LightningLikePaymentMethodDetails
             {
                 BOLT11 = lightningInvoice.BOLT11,
                 InvoiceId = lightningInvoice.Id,
@@ -98,19 +101,19 @@ namespace BTCPayServer.Payments.Lightning
         public async Task<NodeInfo> GetNodeInfo(bool preferOnion, LightningSupportedPaymentMethod supportedPaymentMethod, BTCPayNetwork network)
         {
             if (!_Dashboard.IsFullySynched(network.CryptoCode, out var summary))
-                throw new PaymentMethodUnavailableException($"Full node not available");
+                throw new PaymentMethodUnavailableException("Full node not available");
 
             using (var cts = new CancellationTokenSource(LIGHTNING_TIMEOUT))
             {
                 var client = _lightningClientFactory.Create(supportedPaymentMethod.GetLightningUrl(), network);
-                LightningNodeInformation info = null;
+                LightningNodeInformation info;
                 try
                 {
                     info = await client.GetInfo(cts.Token);
                 }
                 catch (OperationCanceledException) when (cts.IsCancellationRequested)
                 {
-                    throw new PaymentMethodUnavailableException($"The lightning node did not reply in a timely manner");
+                    throw new PaymentMethodUnavailableException("The lightning node did not reply in a timely manner");
                 }
                 catch (Exception ex)
                 {
@@ -119,7 +122,7 @@ namespace BTCPayServer.Payments.Lightning
                 var nodeInfo = info.NodeInfoList.FirstOrDefault(i => i.IsTor == preferOnion) ?? info.NodeInfoList.FirstOrDefault();
                 if (nodeInfo == null)
                 {
-                    throw new PaymentMethodUnavailableException($"No lightning node public address has been configured");
+                    throw new PaymentMethodUnavailableException("No lightning node public address has been configured");
                 }
 
                 var blocksGap = summary.Status.ChainHeight - info.BlockHeight;
@@ -159,28 +162,27 @@ namespace BTCPayServer.Payments.Lightning
         }
 
         public override void PreparePaymentModel(PaymentModel model, InvoiceResponse invoiceResponse,
-            StoreBlob storeBlob)
+            StoreBlob storeBlob, IPaymentMethod paymentMethod)
         {
-            var paymentMethodId = new PaymentMethodId(model.CryptoCode, PaymentTypes.LightningLike);
+            var paymentMethodId = paymentMethod.GetId();
 
             var cryptoInfo = invoiceResponse.CryptoInfo.First(o => o.GetpaymentMethodId() == paymentMethodId);
             var network = _networkProvider.GetNetwork<BTCPayNetwork>(model.CryptoCode);
-            model.IsLightning = true;
             model.PaymentMethodName = GetPaymentMethodName(network);
             model.InvoiceBitcoinUrl = cryptoInfo.PaymentUrls.BOLT11;
             model.InvoiceBitcoinUrlQR = $"lightning:{cryptoInfo.PaymentUrls.BOLT11.ToUpperInvariant().Substring("LIGHTNING:".Length)}";
-            model.LightningAmountInSatoshi = storeBlob.LightningAmountInSatoshi;
+
+            model.PeerInfo = ((LightningLikePaymentMethodDetails) paymentMethod.GetPaymentMethodDetails()).NodeInfo;
             if (storeBlob.LightningAmountInSatoshi && model.CryptoCode == "BTC")
             {
                 var satoshiCulture = new CultureInfo(CultureInfo.InvariantCulture.Name);
                 satoshiCulture.NumberFormat.NumberGroupSeparator = " ";
-
                 model.CryptoCode = "Sats";
                 model.BtcDue = Money.Parse(model.BtcDue).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
                 model.BtcPaid = Money.Parse(model.BtcPaid).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
                 model.OrderAmount = Money.Parse(model.OrderAmount).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
-
                 model.NetworkFee = new Money(model.NetworkFee, MoneyUnit.BTC).ToUnit(MoneyUnit.Satoshi);
+                model.Rate = _currencyNameTable.DisplayFormatCurrency(paymentMethod.Rate / 100_000_000, model.InvoiceCurrency);
             }
         }
         public override string GetCryptoImage(PaymentMethodId paymentMethodId)
@@ -197,6 +199,17 @@ namespace BTCPayServer.Payments.Lightning
         {
             var network = _networkProvider.GetNetwork<BTCPayNetwork>(paymentMethodId.CryptoCode);
             return GetPaymentMethodName(network);
+        }
+
+        public override CheckoutUIPaymentMethodSettings GetCheckoutUISettings()
+        {
+            return new CheckoutUIPaymentMethodSettings()
+            {
+                ExtensionPartial = "Lightning/LightningLikeMethodCheckout",
+                CheckoutBodyVueComponentName = "LightningLikeMethodCheckout",
+                CheckoutHeaderVueComponentName = "LightningLikeMethodCheckoutHeader",
+                NoScriptPartialName = "Lightning/LightningLikeMethodCheckoutNoScript"
+            };
         }
 
         private string GetPaymentMethodName(BTCPayNetworkBase network)

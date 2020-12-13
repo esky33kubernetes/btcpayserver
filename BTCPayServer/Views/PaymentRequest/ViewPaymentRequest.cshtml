@@ -6,6 +6,30 @@
 @{
     ViewData["Title"] = Model.Title;
     Layout = null;
+
+    string StatusTextClass(InvoiceState state)
+    {
+        switch (state.Status.ToModernStatus())
+        {
+            case InvoiceStatus.Settled:
+            case InvoiceStatus.Processing:
+                return "text-success";
+            case InvoiceStatus.Expired:
+                switch (state.ExceptionStatus)
+                {
+                    case InvoiceExceptionStatus.PaidLate:
+                    case InvoiceExceptionStatus.PaidPartial:
+                    case InvoiceExceptionStatus.PaidOver:
+                        return "text-warning";
+                    default:
+                        return "text-danger";
+                }
+            case InvoiceStatus.Invalid:
+                return "text-danger";
+            default:
+                return "text-warning";
+        }
+    }
 }
 
 <!DOCTYPE html>
@@ -222,8 +246,9 @@
                                             <thead>
                                                 <tr class="table-borderless">
                                                     <th class="font-weight-normal text-secondary" scope="col">Invoice Id</th>
-                                                    <th class="font-weight-normal text-secondary">Price</th>
-                                                    <th class="font-weight-normal text-secondary">Expiry</th>
+                                                    <th class="font-weight-normal text-secondary w-175px">Expiry</th>
+                                                    <th class="font-weight-normal text-secondary text-right w-125px">Amount</th>
+                                                    <th class="font-weight-normal text-secondary text-right w-125px"></th>
                                                     <th class="font-weight-normal text-secondary text-right">Status</th>
                                                 </tr>
                                             </thead>
@@ -275,8 +300,9 @@
                                         <thead>
                                             <tr class="table-borderless">
                                                 <th class="font-weight-normal text-secondary" scope="col">Invoice Id</th>
-                                                <th class="font-weight-normal text-secondary">Price</th>
-                                                <th class="font-weight-normal text-secondary">Expiry</th>
+                                                <th class="font-weight-normal text-secondary w-175px">Expiry</th>
+                                                <th class="font-weight-normal text-secondary text-right w-125px">Amount</th>
+                                                <th class="font-weight-normal text-secondary text-right w-125px"></th>
                                                 <th class="font-weight-normal text-secondary text-right">Status</th>
                                             </tr>
                                         </thead>

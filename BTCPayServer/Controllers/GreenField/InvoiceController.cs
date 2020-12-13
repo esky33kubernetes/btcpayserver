@@ -1,21 +1,19 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
-using BTCPayServer.Models.InvoicingModels;
 using BTCPayServer.Payments;
 using BTCPayServer.Security;
+using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
-using BTCPayServer.Validation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using NBitcoin;
-using NBitpayClient;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using CreateInvoiceRequest = BTCPayServer.Client.Models.CreateInvoiceRequest;
 using InvoiceData = BTCPayServer.Client.Models.InvoiceData;
 
@@ -28,11 +26,16 @@ namespace BTCPayServer.Controllers.GreenField
     {
         private readonly InvoiceController _invoiceController;
         private readonly InvoiceRepository _invoiceRepository;
+        private readonly LinkGenerator _linkGenerator;
 
-        public GreenFieldInvoiceController(InvoiceController invoiceController, InvoiceRepository invoiceRepository)
+        public LanguageService LanguageService { get; }
+
+        public GreenFieldInvoiceController(InvoiceController invoiceController, InvoiceRepository invoiceRepository, LinkGenerator linkGenerator, LanguageService languageService)
         {
             _invoiceController = invoiceController;
             _invoiceRepository = invoiceRepository;
+            _linkGenerator = linkGenerator;
+            LanguageService = languageService;
         }
 
         [Authorize(Policy = Policies.CanViewInvoices,
@@ -92,6 +95,26 @@ namespace BTCPayServer.Controllers.GreenField
             return Ok();
         }
 
+        [Authorize(Policy = Policies.CanModifyStoreSettings,
+            AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+        [HttpPut("~/api/v1/stores/{storeId}/invoices/{invoiceId}")]
+        public async Task<IActionResult> UpdateInvoice(string storeId, string invoiceId, UpdateInvoiceRequest request)
+        {
+            var store = HttpContext.GetStoreData();
+            if (store == null)
+            {
+                return NotFound();
+            }
+
+            var result = await _invoiceRepository.UpdateInvoiceMetadata(invoiceId, storeId, request.Metadata);
+            if (result != null)
+            {
+                return Ok(ToModel(result));
+            }
+
+            return NotFound();
+        }
+
         [Authorize(Policy = Policies.CanCreateInvoice,
             AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
         [HttpPost("~/api/v1/stores/{storeId}/invoices")]
@@ -112,7 +135,7 @@ namespace BTCPayServer.Controllers.GreenField
             {
                 ModelState.AddModelError(nameof(request.Currency), "Currency is required");
             }
-
+            request.Checkout = request.Checkout ?? new CreateInvoiceRequest.CheckoutOptions();
             if (request.Checkout.PaymentMethods?.Any() is true)
             {
                 for (int i = 0; i < request.Checkout.PaymentMethods.Length; i++)
@@ -136,6 +159,21 @@ namespace BTCPayServer.Controllers.GreenField
             {
                 request.AddModelError(invoiceRequest => invoiceRequest.Checkout.PaymentTolerance,
                     "PaymentTolerance can only be between 0 and 100 percent", this);
+            }
+
+            if (request.Checkout.DefaultLanguage != null)
+            {
+                var lang = LanguageService.FindBestMatch(request.Checkout.DefaultLanguage);
+                if (lang == null)
+                {
+                    request.AddModelError(invoiceRequest => invoiceRequest.Checkout.DefaultLanguage,
+                    "The requested defaultLang does not exists, Browse the ~/misc/lang page of your BTCPay Server instance to see the list of supported languages.", this);
+                }
+                else
+                {
+                    // Ensure this is good case
+                    request.Checkout.DefaultLanguage = lang.Code;
+                }
             }
 
             if (!ModelState.IsValid)
@@ -212,8 +250,71 @@ namespace BTCPayServer.Controllers.GreenField
             await _invoiceRepository.ToggleInvoiceArchival(invoiceId, false, storeId);
             return await GetInvoice(storeId, invoiceId);
         }
+        
+        [Authorize(Policy = Policies.CanViewInvoices,
+            AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+        [HttpGet("~/api/v1/stores/{storeId}/invoices/{invoiceId}/payment-methods")]
+        public async Task<IActionResult> GetInvoicePaymentMethods(string storeId, string invoiceId)
+        {
+            var store = HttpContext.GetStoreData();
+            if (store == null)
+            {
+                return NotFound();
+            }
 
+            var invoice = await _invoiceRepository.GetInvoice(invoiceId, true);
+            if (invoice.StoreId != store.Id)
+            {
+                return NotFound();
+            }
 
+            return Ok(ToPaymentMethodModels(invoice));
+        }
+        
+        private InvoicePaymentMethodDataModel[] ToPaymentMethodModels(InvoiceEntity entity)
+        {
+            return entity.GetPaymentMethods().Select(
+                method =>
+                {
+                    var accounting = method.Calculate();
+                    var details = method.GetPaymentMethodDetails();
+                    var payments = method.ParentEntity.GetPayments().Where(paymentEntity =>
+                        paymentEntity.GetPaymentMethodId() == method.GetId());
+
+                    return new InvoicePaymentMethodDataModel()
+                    {
+                        PaymentMethod = method.GetId().ToStringNormalized(),
+                        Destination = details.GetPaymentDestination(),
+                        Rate = method.Rate,
+                        Due = accounting.Due.ToDecimal(MoneyUnit.BTC),
+                        TotalPaid = accounting.Paid.ToDecimal(MoneyUnit.BTC),
+                        PaymentMethodPaid = accounting.CryptoPaid.ToDecimal(MoneyUnit.BTC),
+                        Amount = accounting.Due.ToDecimal(MoneyUnit.BTC),
+                        NetworkFee = accounting.NetworkFee.ToDecimal(MoneyUnit.BTC),
+                        PaymentLink =
+                            method.GetId().PaymentType.GetPaymentLink(method.Network, details, accounting.Due,
+                                Request.GetAbsoluteRoot()),
+                        Payments = payments.Select(paymentEntity =>
+                        {
+                            var data = paymentEntity.GetCryptoPaymentData();
+                            return new InvoicePaymentMethodDataModel.Payment()
+                            {
+                                Destination = data.GetDestination(),
+                                Id = data.GetPaymentId(),
+                                Status = !paymentEntity.Accounted
+                                    ? InvoicePaymentMethodDataModel.Payment.PaymentStatus.Invalid
+                                    : data.PaymentConfirmed(paymentEntity, entity.SpeedPolicy) ||
+                                      data.PaymentCompleted(paymentEntity)
+                                        ? InvoicePaymentMethodDataModel.Payment.PaymentStatus.Settled
+                                        : InvoicePaymentMethodDataModel.Payment.PaymentStatus.Processing,
+                                Fee = paymentEntity.NetworkFee,
+                                Value = data.GetValue(),
+                                ReceivedDate = paymentEntity.ReceivedTime.DateTime
+                            };
+                        }).ToList()
+                    };
+                }).ToArray();
+        }
         private InvoiceData ToModel(InvoiceEntity entity)
         {
             return new InvoiceData()
@@ -223,7 +324,8 @@ namespace BTCPayServer.Controllers.GreenField
                 CreatedTime = entity.InvoiceTime,
                 Amount = entity.Price,
                 Id = entity.Id,
-                Status = entity.Status,
+                CheckoutLink = _linkGenerator.CheckoutLink(entity.Id, Request.Scheme, Request.Host, Request.PathBase),
+                Status = entity.Status.ToModernStatus(),
                 AdditionalStatus = entity.ExceptionStatus,
                 Currency = entity.Currency,
                 Metadata = entity.Metadata.ToJObject(),
@@ -234,7 +336,8 @@ namespace BTCPayServer.Controllers.GreenField
                     PaymentTolerance = entity.PaymentTolerance,
                     PaymentMethods =
                         entity.GetPaymentMethods().Select(method => method.GetId().ToStringNormalized()).ToArray(),
-                    SpeedPolicy = entity.SpeedPolicy
+                    SpeedPolicy = entity.SpeedPolicy,
+                    DefaultLanguage = entity.DefaultLanguage
                 }
             };
         }

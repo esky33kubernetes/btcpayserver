@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Controllers;
 using BTCPayServer.Models;
 using BTCPayServer.Models.ServerViewModels;
@@ -222,7 +223,7 @@ namespace BTCPayServer.Tests
 
             //delete file
             Assert.IsType<RedirectToActionResult>(await controller.DeleteFile(fileId));
-            controller.TempData.GetStatusMessageModel();
+            statusMessageModel = controller.TempData.GetStatusMessageModel();
             Assert.NotNull(statusMessageModel);
 
             Assert.Equal(StatusMessageModel.StatusSeverity.Success, statusMessageModel.Severity);

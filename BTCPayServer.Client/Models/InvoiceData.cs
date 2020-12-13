@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using BTCPayServer.JsonConverters;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 
@@ -9,6 +7,7 @@ namespace BTCPayServer.Client.Models
     public class InvoiceData : CreateInvoiceRequest
     {
         public string Id { get; set; }
+        public string CheckoutLink { get; set; }
         [JsonConverter(typeof(StringEnumConverter))]
         public InvoiceStatus Status { get; set; }
         [JsonConverter(typeof(StringEnumConverter))]
@@ -19,5 +18,13 @@ namespace BTCPayServer.Client.Models
         public DateTimeOffset ExpirationTime { get; set; }
         [JsonConverter(typeof(NBitcoin.JsonConverters.DateTimeToUnixTimeConverter))]
         public DateTimeOffset CreatedTime { get; set; }
+    }
+    public enum InvoiceStatus
+    {
+        New,
+        Processing,
+        Expired,
+        Invalid,
+        Settled
     }
 }

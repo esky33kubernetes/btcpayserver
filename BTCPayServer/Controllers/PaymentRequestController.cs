@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Constants;
+using BTCPayServer.Abstractions.Extensions;
+using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
@@ -233,12 +236,15 @@ namespace BTCPayServer.Controllers
                 return BadRequest("Payment Request has expired");
             }
 
-            var statusesAllowedToDisplay = new List<InvoiceStatus>() { InvoiceStatus.New };
-            var validInvoice = result.Invoices.FirstOrDefault(invoice =>
-                Enum.TryParse<InvoiceStatus>(invoice.Status, true, out var status) &&
-                statusesAllowedToDisplay.Contains(status));
-
-            if (validInvoice != null)
+            var stateAllowedToDisplay = new HashSet<InvoiceState>()
+            {
+                new InvoiceState(InvoiceStatusLegacy.New, InvoiceExceptionStatus.None),
+                new InvoiceState(InvoiceStatusLegacy.New, InvoiceExceptionStatus.PaidPartial),
+            };
+            var currentInvoice = result
+                .Invoices
+                .FirstOrDefault(invoice => stateAllowedToDisplay.Contains(invoice.State));
+            if (currentInvoice != null)
             {
                 if (redirectToInvoice)
                 {
@@ -297,8 +303,7 @@ namespace BTCPayServer.Controllers
             }
 
             var invoices = result.Invoices.Where(requestInvoice =>
-                requestInvoice.Status.Equals(InvoiceState.ToString(InvoiceStatus.New),
-                    StringComparison.InvariantCulture) && !requestInvoice.Payments.Any());
+                requestInvoice.State.Status == InvoiceStatusLegacy.New && !requestInvoice.Payments.Any());
 
             if (!invoices.Any())
             {

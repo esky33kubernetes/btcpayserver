@@ -8,10 +8,8 @@ using BTCPayServer.HostedServices;
 using BTCPayServer.Logging;
 using BTCPayServer.Models;
 using BTCPayServer.Models.InvoicingModels;
-using BTCPayServer.Rating;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
-using BTCPayServer.Services.Rates;
 using NBitcoin;
 using NBXplorer.Models;
 using StoreData = BTCPayServer.Data.StoreData;
@@ -47,17 +45,46 @@ namespace BTCPayServer.Payments.Bitcoin
         }
 
         public override void PreparePaymentModel(PaymentModel model, InvoiceResponse invoiceResponse,
-            StoreBlob storeBlob)
+            StoreBlob storeBlob, IPaymentMethod paymentMethod)
         {
-            var paymentMethodId = new PaymentMethodId(model.CryptoCode, PaymentTypes.BTCLike);
-
+            var paymentMethodId = paymentMethod.GetId();
             var cryptoInfo = invoiceResponse.CryptoInfo.First(o => o.GetpaymentMethodId() == paymentMethodId);
             var network = _networkProvider.GetNetwork<BTCPayNetwork>(model.CryptoCode);
-            model.IsLightning = false;
+            model.ShowRecommendedFee = storeBlob.ShowRecommendedFee;
+            model.FeeRate = ((BitcoinLikeOnChainPaymentMethod) paymentMethod.GetPaymentMethodDetails()).GetFeeRate();
             model.PaymentMethodName = GetPaymentMethodName(network);
-            model.InvoiceBitcoinUrl = cryptoInfo.PaymentUrls.BIP21;
-            model.InvoiceBitcoinUrlQR = cryptoInfo.PaymentUrls.BIP21;
+
+
+            var lightningFallback = "";
+            if (storeBlob.OnChainWithLnInvoiceFallback)
+            {
+                var lightningInfo = invoiceResponse.CryptoInfo.FirstOrDefault(a =>
+                    a.GetpaymentMethodId() == new PaymentMethodId(model.CryptoCode, PaymentTypes.LightningLike));
+                if (!String.IsNullOrEmpty(lightningInfo?.PaymentUrls?.BOLT11))
+                    lightningFallback = "&" + lightningInfo.PaymentUrls.BOLT11.Replace("lightning:", "lightning=", StringComparison.OrdinalIgnoreCase);
+            }
+
+            model.InvoiceBitcoinUrl = cryptoInfo.PaymentUrls.BIP21 + lightningFallback;
+            model.InvoiceBitcoinUrlQR = model.InvoiceBitcoinUrl;
+
+            // Standard for uppercase Bech32 addresses in QR codes is still not implemented in all wallets
+            // When it is widely propagated consider uncommenting these lines
+
+            // We're trying to make as many characters uppercase to make QR smaller
+            // Ref: https://github.com/btcpayserver/btcpayserver/pull/2060#issuecomment-723828348
+            //model.InvoiceBitcoinUrlQR = cryptoInfo.PaymentUrls.BIP21
+            //    .Replace("bitcoin:", "BITCOIN:", StringComparison.OrdinalIgnoreCase)
+            //    + lightningFallback.ToUpperInvariant().Replace("LIGHTNING=", "lightning=", StringComparison.OrdinalIgnoreCase);
+
+            //if (bech32Prefixes.Any(a => model.BtcAddress.StartsWith(a, StringComparison.OrdinalIgnoreCase)))
+            //{
+            //    model.InvoiceBitcoinUrlQR = model.InvoiceBitcoinUrlQR.Replace(
+            //        $"BITCOIN:{model.BtcAddress}", $"BITCOIN:{model.BtcAddress.ToUpperInvariant()}", 
+            //        StringComparison.OrdinalIgnoreCase
+            //    );
+            //}
         }
+        //private static string[] bech32Prefixes = new[] { "bc1", "tb1", "bcrt1" };
 
         public override string GetCryptoImage(PaymentMethodId paymentMethodId)
         {
