@@ -25,7 +25,6 @@ using BTCPayServer.Security;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Invoices.Export;
 using BTCPayServer.Services.Rates;
-using DBriize.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -705,7 +704,7 @@ namespace BTCPayServer.Controllers
 
             InvoiceQuery invoiceQuery = GetInvoiceQuery(model.SearchTerm, model.TimezoneOffset ?? 0);
             var counting = _InvoiceRepository.GetInvoicesTotal(invoiceQuery);
-            invoiceQuery.Count = model.Count;
+            invoiceQuery.Take = model.Count;
             invoiceQuery.Skip = model.Skip;
             var list = await _InvoiceRepository.GetInvoices(invoiceQuery);
 
@@ -759,7 +758,7 @@ namespace BTCPayServer.Controllers
 
             InvoiceQuery invoiceQuery = GetInvoiceQuery(searchTerm, timezoneOffset);
             invoiceQuery.Skip = 0;
-            invoiceQuery.Count = int.MaxValue;
+            invoiceQuery.Take = int.MaxValue;
             var invoices = await _InvoiceRepository.GetInvoices(invoiceQuery);
             var res = model.Process(invoices, format);
 

@@ -1,5 +1,116 @@
 # Changelog
 
+## 1.0.6.8
+
+This release is trying some improvement to decrease the chances of being falsy flagged by Google Safe Browsing.
+
+* Remove Tor URL from login page (useless now thanks to the url bar link) @dennisreimann
+* Remove allowtransparency from checkout overlay @dennisreimann
+* Remove clipboard code from the login page (was used to copy the tor url) @dennisreimann
+* Rename some pages from PascalCase to lowercase. (Register => register, Login => login) @dennisreimann
+
+## 1.0.6.7
+
+### Bug fixes:
+
+* Reverted the new Greenfield API: Can configure lightning payment methods @NicolasDorier
+
+## 1.0.6.6
+
+### Bug fixes:
+
+* Load correct connection string when using SQLite @Kukks
+* Greenfeld API: Invoice Metadata update was not updating @saliehendricks
+* Prevent access to wallet pags if wallet not set @dennisreimann
+
+### New features
+
+* Greenfield API: Can configure lightning payment methods @Kukks
+
+## 1.0.6.5:
+
+### Improvements:
+
+* Support a subset of output descriptor in the wallet setup @Kukks
+* Improved styling of the notification dropdown (see #2167) @ubolator @dennisreimann
+* API keys and server's url can be shown as QR Code to facilitate pairing @Kukks
+* Greenfield API: Add `DefaultPaymentMethod` to the store's settings @Kukks
+* Greenfield API: Can configure on-chain payment methods @Kukks @NicolasDorier
+* UI Improvements (see this [commit list](https://github.com/btcpayserver/btcpayserver/pull/2151/commits)) @dennisreimann
+
+### Bug fixes:
+
+* Always normalize the invoice's currency in uppercase @NicolasDorier
+* If a label on a wallet's transaction does not have color, it should still show it @NicolasDorier
+* Do not include Tor Location header when querying the modal checkout (see #2180) @Kukks
+* Webhooks should not be randomly deleted anymore. @NicolasDorier
+* Fix header not showing properly after login to BTCPay Server (see #2155) @dennisreimann
+* Bug: Searching invoices was timing out if there was too much invoices @rockstardev @Kukks
+
+### Miscellaneous:
+
+* Removing the old text search engine (DBreeze) @rockstardev @Kukks
+* Add doc for asking permissions to BTCPayServer see [link](docs/greenfield-authorization.md). @Kukks
+
+## 1.0.6.4:
+
+### Bug fixes:
+
+* Fix coin selection label filter (@Kukks)
+* Greenfield: Fix behaviour after first admin signup (see #2150) @dennisreimann
+* Greenfield: If invoice is not found, error 404 should be returned rather than a crash @dennisreimann
+* Attempt to fix sometimes broken Mark as Seen button @NicolasDorier
+
+### Improvements
+
+* Improve the invoice details view (see #2144) @dennisreimann
+
+### Miscellaneous
+
+* API Keys: Add usage examples link to docs @dennisreimann
+
+## 1.0.6.3:
+
+### New features
+
+* Greenfield API: Can update invoice metadata @Kukks
+* Greenfield API: User notifications API @Kukks 
+* Greenfield API: Can specify the preferred language when creating an invoice @NicolasDorier
+* Greenfield API: Can specify the URL to redirect customer to when he paid when creating an invoice @NicolasDorier
+* Greenfield API: Expose the `checkoutLink` of the created invoice, where you need to redirect your customer to pay in BTC @NicolasDorier
+* Add a `Mark all as seen` button to the notification dropdown @ubolator
+* Support of Armenian language in checkout page. Thanks to Mash Mashok
+* Add ability to add custom CSS to pull payments @ubolator
+* Introduce some basic spam protection for hosts with open registration (see #2106) @Kukks
+
+
+### Improvements
+
+* Hide pagination & page size when not necessary (#2122) @dennisreimann @dstrukt
+* Document in `/docs` miscellaneous features of BTCPay (such as optional arguments of the checkout page) @NicolasDorier
+* UI: Improve mobile store setup view @dennisreimann @dstrukt
+* Improve U2F support, should leverage OS support and now work properly on mobile Safari (See #2086) @dennisreimann
+* Improve how new label picked their color (See #2072) @ubolator
+* Improve the design of transaction's label dropdown to fix display issue when there are too many (see #2078) @ubolator
+
+### Bug fixes:
+
+* Ensure campaign status is shown correctly in minimal crowdfund app (#2062) @ubolator
+* Can remove automatic labels from invoices @NicolasDorier
+* Fix Pay Button Link preview when app mode chosen (#2115) @Kukks
+* If the user was not admin, the API Keys page was ignoring some of the checked permissions @NicolasDorier
+* Greenfield API: If invoice creation failed for some reason, BTCPay would give a HTTP 500 error without details helping the user. @NicolasDorier
+* Fix performance issue: Some invoice queries were causing a full table scan on all invoices rather than using an index. @NicolasDorier
+* Fix: Importing an incorrect wallet from BlueWallet was crashing (#2098) @Kukks
+* Fix classic theme for payment requests (Fix #2084) @dennisreimann
+
+### Miscellaneous:
+
+* Removing the bitpay invoice translator @NicolasDorier
+* Improve the documentation of API Keys page @NicolasDorier
+* Fix doc for create invoice request's metadata @NicolasDorier
+* Fix docs for pull payments @Kukks
+
 ## 1.0.6.2:
 
 *  Reverting uppercasing of Bech32 addresses in QR code (@Rockstardev)

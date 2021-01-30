@@ -8,8 +8,7 @@ namespace BTCPayServer
 {
     public partial class BTCPayNetworkProvider
     {
-        readonly Dictionary<string, BTCPayNetworkBase> _Networks = new Dictionary<string, BTCPayNetworkBase>();
-
+        protected readonly Dictionary<string, BTCPayNetworkBase> _Networks = new Dictionary<string, BTCPayNetworkBase>();
 
         private readonly NBXplorerNetworkProvider _NBXplorerNetworkProvider;
         public NBXplorerNetworkProvider NBXplorerNetworkProvider
@@ -36,8 +35,8 @@ namespace BTCPayServer
         }
 
 
-        public NetworkType NetworkType { get; private set; }
-        public BTCPayNetworkProvider(NetworkType networkType)
+        public ChainName NetworkType { get; private set; }
+        public BTCPayNetworkProvider(ChainName networkType)
         {
             _NBXplorerNetworkProvider = new NBXplorerNetworkProvider(networkType);
             NetworkType = networkType;

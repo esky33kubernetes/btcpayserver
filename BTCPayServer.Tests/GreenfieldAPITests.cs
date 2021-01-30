@@ -994,6 +994,12 @@ namespace BTCPayServer.Tests
 
                 Assert.Equal("updated",invoice.Metadata["itemCode"].Value<string>());
                 Assert.Equal(15,((JArray) invoice.Metadata["newstuff"]).Values<int>().Sum());
+
+                //also test the the metadata actually got saved
+                invoice = await client.GetInvoice(user.StoreId, newInvoice.Id);
+                Assert.Equal("updated",invoice.Metadata["itemCode"].Value<string>());
+                Assert.Equal(15,((JArray) invoice.Metadata["newstuff"]).Values<int>().Sum());
+                
                 //archive 
                 await AssertHttpError(403, async () =>
                 {
@@ -1080,7 +1086,7 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact(Timeout = 60 * 2 * 1000)]
+        [Fact(Timeout = 60 * 20 * 1000)]
         [Trait("Integration", "Integration")]
         [Trait("Lightning", "Lightning")]
         public async Task CanUseLightningAPI()
@@ -1098,7 +1104,7 @@ namespace BTCPayServer.Tests
                 merchant.GrantAccess(true);
                 merchant.RegisterLightningNode("BTC", LightningConnectionType.LndREST);
                 var merchantClient = await merchant.CreateClient($"{Policies.CanUseLightningNodeInStore}:{merchant.StoreId}");
-                var merchantInvoice = await merchantClient.CreateLightningInvoice(merchant.StoreId, "BTC", new CreateLightningInvoiceRequest(new LightMoney(1_000), "hey", TimeSpan.FromSeconds(60)));
+                var merchantInvoice = await merchantClient.CreateLightningInvoice(merchant.StoreId, "BTC", new CreateLightningInvoiceRequest(LightMoney.Satoshis(1_000), "hey", TimeSpan.FromSeconds(60)));
                 tester.PayTester.GetService<BTCPayServerEnvironment>().DevelopmentOverride = false;
                 // The default client is using charge, so we should not be able to query channels
                 var client = await user.CreateClient(Policies.CanUseInternalLightningNode);
@@ -1209,8 +1215,66 @@ namespace BTCPayServer.Tests
             Assert.Empty(await viewOnlyClient.GetNotifications(true));
             Assert.Empty(await viewOnlyClient.GetNotifications(false));
         }
+        
+        [Fact(Timeout = TestTimeout)]
+        [Trait("Integration", "Integration")]
+        public async Task OnChainPaymentMethodAPITests()
+        {
+            using var tester = ServerTester.Create();
+            await tester.StartAsync();
+            var user = tester.NewAccount();
+            await user.GrantAccessAsync(true);
+            var client = await user.CreateClient(Policies.CanModifyStoreSettings);
+            var viewOnlyClient = await user.CreateClient(Policies.CanViewStoreSettings);
+
+            var store = await client.CreateStore(new CreateStoreRequest() {Name = "test store"});
+
+            Assert.Empty(await client.GetStoreOnChainPaymentMethods(store.Id));
+            await AssertHttpError(403, async () =>
+            {
+                await viewOnlyClient.UpdateStoreOnChainPaymentMethod(store.Id, "BTC", new OnChainPaymentMethodData() { });
+            });
+            var xpriv = new Mnemonic("all all all all all all all all all all all all").DeriveExtKey()
+                .Derive(KeyPath.Parse("m/84'/0'/0'"));
+            var xpub = xpriv.Neuter().ToString(Network.RegTest);
+            var firstAddress = xpriv.Derive(KeyPath.Parse("0/0")).Neuter().GetPublicKey().GetAddress(ScriptPubKeyType.Segwit, Network.RegTest).ToString();
+            await AssertHttpError(404, async () =>
+            {
+                await client.PreviewStoreOnChainPaymentMethodAddresses(store.Id, "BTC");
+            });
+            
+            Assert.Equal(firstAddress, (await viewOnlyClient.PreviewProposedStoreOnChainPaymentMethodAddresses(store.Id, "BTC",
+                new OnChainPaymentMethodData() {Enabled = true, DerivationScheme = xpub})).Addresses.First().Address);
+            
+            var method = await client.UpdateStoreOnChainPaymentMethod(store.Id, "BTC",
+                new OnChainPaymentMethodData() { Enabled = true, DerivationScheme = xpub});
+            
+            Assert.Equal(xpub,method.DerivationScheme);
+
+            method = await client.UpdateStoreOnChainPaymentMethod(store.Id, "BTC",
+                new OnChainPaymentMethodData() {  Enabled = true, DerivationScheme = xpub, Label = "lol", AccountKeyPath = RootedKeyPath.Parse("01020304/1/2/3") });
+
+            method = await client.GetStoreOnChainPaymentMethod(store.Id, "BTC");
+
+            Assert.Equal("lol", method.Label);
+            Assert.Equal(RootedKeyPath.Parse("01020304/1/2/3"), method.AccountKeyPath);
+            Assert.Equal(xpub,method.DerivationScheme);
+            
+            
+            Assert.Equal(firstAddress, (await viewOnlyClient.PreviewStoreOnChainPaymentMethodAddresses(store.Id, "BTC")).Addresses.First().Address);
+            await AssertHttpError(403, async () =>
+            {
+                await viewOnlyClient.RemoveStoreOnChainPaymentMethod(store.Id, "BTC");
+            });
+           await  client.RemoveStoreOnChainPaymentMethod(store.Id, "BTC");
+           await AssertHttpError(404, async () =>
+           {
+               await client.GetStoreOnChainPaymentMethod(store.Id, "BTC");
+           });
+        }
 
 
+        
 
         [Fact(Timeout = TestTimeout)]
         [Trait("Fast", "Fast")]

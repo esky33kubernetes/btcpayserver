@@ -21,7 +21,6 @@
             "wwwroot/vendor/flatpickr/flatpickr.js",
             "wwwroot/main/bootstrap/bootstrap.js",
             "wwwroot/main/bootstrap4-creativestart/creative.js",
-            "wwwroot/js/copy-to-clipboard.js",
             "wwwroot/main/site.js"
         ]
     },
@@ -56,16 +55,6 @@
             "wwwroot/vendor/jquery-prettydropdowns/jquery.prettydropdowns.js",
             "wwwroot/vendor/vex/js/vex.combined.min.js",
             "wwwroot/checkout/**/*.js"
-        ]
-    },
-    {
-        "outputFileName": "wwwroot/bundles/lightning-node-info-bundle.min.js",
-        "inputFiles": [
-            "wwwroot/vendor/clipboard.js/clipboard.js",
-            "wwwroot/vendor/jquery/jquery.js",
-            "wwwroot/vendor/vuejs/vue.min.js",
-            "wwwroot/vendor/vue-qrcode/vue-qrcode.min.js",
-            "wwwroot/vendor/vue-toasted/vue-toasted.min.js"
         ]
     },
     {
