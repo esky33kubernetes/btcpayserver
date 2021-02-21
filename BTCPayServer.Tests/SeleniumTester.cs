@@ -17,6 +17,7 @@ using Microsoft.Extensions.Configuration;
 using NBitcoin;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Support.Extensions;
 using Xunit;
 
 namespace BTCPayServer.Tests
@@ -32,6 +33,7 @@ namespace BTCPayServer.Tests
         public static SeleniumTester Create([CallerMemberNameAttribute] string scope = null, bool newDb = false) =>
             new SeleniumTester { Server = ServerTester.Create(scope, newDb) };
 
+        public static readonly TimeSpan ImplicitWait = TimeSpan.FromSeconds(5);
 
         public async Task StartAsync()
         {
@@ -46,6 +48,8 @@ namespace BTCPayServer.Tests
             var runInBrowser = config["RunSeleniumInBrowser"] == "true";
             // Reset this using `dotnet user-secrets remove RunSeleniumInBrowser`
 
+            var chromeDriverPath = config["ChromeDriverDirectory"] ?? (Server.PayTester.InContainer ? "/usr/bin" : Directory.GetCurrentDirectory());
+
             var options = new ChromeOptions();
             if (Server.PayTester.InContainer)
             {
@@ -58,7 +62,7 @@ namespace BTCPayServer.Tests
             }
             options.AddArguments($"window-size={windowSize.Width}x{windowSize.Height}");
             options.AddArgument("shm-size=2g");
-            Driver = new ChromeDriver(Server.PayTester.InContainer ? "/usr/bin" : Directory.GetCurrentDirectory(), options);
+            Driver = new ChromeDriver(chromeDriverPath, options);
 
             if (runInBrowser)
             {
@@ -69,15 +73,19 @@ namespace BTCPayServer.Tests
             Logs.Tester.LogInformation($"Selenium: Using {Driver.GetType()}");
             Logs.Tester.LogInformation($"Selenium: Browsing to {Server.PayTester.ServerUri}");
             Logs.Tester.LogInformation($"Selenium: Resolution {Driver.Manage().Window.Size}");
-            Driver.Manage().Timeouts().ImplicitWait = ImplicitWait;
             GoToRegister();
             Driver.AssertNoError();
         }
 
-        internal IWebElement FindAlertMessage(StatusMessageModel.StatusSeverity severity = StatusMessageModel.StatusSeverity.Success) =>
-            Driver.FindElement(By.ClassName($"alert-{StatusMessageModel.ToString(severity)}"));
+        internal IWebElement FindAlertMessage(StatusMessageModel.StatusSeverity severity = StatusMessageModel.StatusSeverity.Success)
+        {
+            var className = $"alert-{StatusMessageModel.ToString(severity)}";
+            var el = Driver.FindElement(By.ClassName(className)) ?? Driver.WaitForElement(By.ClassName(className));
+            if (el is null)
+                throw new NoSuchElementException($"Unable to find {className}");
+            return el;
+        }
 
-        public static readonly TimeSpan ImplicitWait = TimeSpan.FromSeconds(5);
         public string Link(string relativeLink)
         {
             return Server.PayTester.ServerUri.AbsoluteUri.WithoutEndingSlash() + relativeLink.WithStartingSlash();
@@ -116,21 +124,45 @@ namespace BTCPayServer.Tests
         public Mnemonic GenerateWallet(string cryptoCode = "BTC", string seed = "", bool importkeys = false, bool privkeys = false, ScriptPubKeyType format = ScriptPubKeyType.Segwit)
         {
             Driver.FindElement(By.Id($"Modify{cryptoCode}")).Click();
-            Driver.FindElement(By.Id("import-from-btn")).Click();
-            Driver.FindElement(By.Id("nbxplorergeneratewalletbtn")).Click();
-            Driver.FindElement(By.Id("ExistingMnemonic")).SendKeys(seed);
-            SetCheckbox(Driver.FindElement(By.Id("SavePrivateKeys")), privkeys);
-            SetCheckbox(Driver.FindElement(By.Id("ImportKeysToRPC")), importkeys);
+            // Modify case
+            if (Driver.PageSource.Contains("id=\"ChangeWalletLink\""))
+            {
+                Driver.FindElement(By.Id("ChangeWalletLink")).Click();
+            }
+
+            if (string.IsNullOrEmpty(seed))
+            {
+                var option = privkeys ? "Hotwallet" : "Watchonly";
+                Logs.Tester.LogInformation($"Generating new seed ({option})");
+                Driver.FindElement(By.Id("GenerateWalletLink")).Click();
+                Driver.FindElement(By.Id($"Generate{option}Link")).Click();
+            }
+            else
+            {
+                Logs.Tester.LogInformation("Progressing with existing seed");
+                Driver.FindElement(By.Id("ImportWalletOptionsLink")).Click();
+                Driver.FindElement(By.Id("ImportSeedLink")).Click();
+                Driver.FindElement(By.Id("ExistingMnemonic")).SendKeys(seed);
+                Driver.SetCheckbox(By.Id("SavePrivateKeys"), privkeys);
+            }
+
             Driver.FindElement(By.Id("ScriptPubKeyType")).Click();
             Driver.FindElement(By.CssSelector($"#ScriptPubKeyType option[value={format}]")).Click();
-            Logs.Tester.LogInformation("Trying to click btn-generate");
-            Driver.FindElement(By.Id("btn-generate")).Click();
+
+            // Open advanced settings via JS, because if we click the link it triggers the toggle animation.
+            // This leads to Selenium trying to click the button while it is moving resulting in an error.
+            Driver.ExecuteJavaScript("document.getElementById('AdvancedSettings').classList.add('show')");
+
+            Driver.SetCheckbox(By.Id("ImportKeysToRPC"), importkeys);
+            Driver.FindElement(By.Id("Continue")).Click();
+
             // Seed backup page
             FindAlertMessage();
             if (string.IsNullOrEmpty(seed))
             {
-                seed = Driver.FindElements(By.Id("recovery-phrase")).First().GetAttribute("data-mnemonic");
+                seed = Driver.FindElements(By.Id("RecoveryPhrase")).First().GetAttribute("data-mnemonic");
             }
+
             // Confirm seed backup
             Driver.FindElement(By.Id("confirm")).Click();
             Driver.FindElement(By.Id("submit")).Click();
@@ -142,7 +174,9 @@ namespace BTCPayServer.Tests
         public void AddDerivationScheme(string cryptoCode = "BTC", string derivationScheme = "xpub661MyMwAqRbcGABgHMUXDzPzH1tU7eZaAaJQXhDXsSxsqyQzQeU6kznNfSuAyqAK9UaWSaZaMFdNiY5BCF4zBPAzSnwfUAwUhwttuAKwfRX-[legacy]")
         {
             Driver.FindElement(By.Id($"Modify{cryptoCode}")).Click();
-            Driver.FindElement(By.ClassName("store-derivation-scheme")).SendKeys(derivationScheme);
+            Driver.FindElement(By.Id("ImportWalletOptionsLink")).Click();
+            Driver.FindElement(By.Id("ImportXpubLink")).Click();
+            Driver.FindElement(By.Id("DerivationScheme")).SendKeys(derivationScheme);
             Driver.FindElement(By.Id("Continue")).Click();
             Driver.FindElement(By.Id("Confirm")).Click();
             FindAlertMessage();
@@ -247,26 +281,6 @@ namespace BTCPayServer.Tests
             Driver.FindElement(By.Id("Invoices")).Click();
             Driver.FindElement(By.Id($"invoice-checkout-{invoiceId}")).Click();
             CheckForJSErrors();
-        }
-
-
-        public void SetCheckbox(IWebElement element, bool value)
-        {
-            if ((value && !element.Selected) || (!value && element.Selected))
-            {
-                element.Click();
-            }
-
-            if (value != element.Selected)
-            {
-                Logs.Tester.LogInformation("SetCheckbox recursion, trying to click again");
-                SetCheckbox(element, value);
-            }
-        }
-
-        public void SetCheckbox(SeleniumTester s, string checkboxId, bool value)
-        {
-            SetCheckbox(s.Driver.FindElement(By.Id(checkboxId)), value);
         }
 
         public void GoToInvoices()
